@@ -166,11 +166,11 @@ class GameScene extends Phaser.Scene {
             p.ui.sprite.setScale(1);
         });
 
-        // Generate a sequence of 6 arrows
+        // Generate a sequence of 5 arrows
         const directions = ['LEFT', 'DOWN', 'UP', 'RIGHT'];
         this.currentSequence = [];
         let seqStr = '';
-        for (let i = 0; i < 6; i++) {
+        for (let i = 0; i < 5; i++) {
             const dir = Phaser.Math.RND.pick(directions);
             this.currentSequence.push(dir);
             seqStr += this.symbols[dir] + ' ';
@@ -317,36 +317,6 @@ class GameScene extends Phaser.Scene {
         // If turn already resolved for this player, ignore
         if (player.failedTurn || player.finishedTurn) return;
 
-        // Handle BAM action
-        if (direction === 'BAM') {
-            if (player.sequenceProgress === this.currentSequence.length) {
-                // Determine if BAM was on beat
-                const progress = (this.playhead.x - this.beatBarX) / this.beatBarWidth;
-
-                if (progress >= this.hitZoneStart && progress <= this.hitZoneEnd) {
-                    // PERFECT HIT!
-                    player.score += 500;
-                    player.finishedTurn = true;
-                    this.showFeedback(player, 'PERFECT!', 0x00ff00);
-
-                    // Dance Animation
-                    this.tweens.add({
-                        targets: player.ui.sprite, y: player.ui.sprite.y - 50, scaleX: 1.3, duration: 200, yoyo: true
-                    });
-                } else {
-                    // Missed the hit zone timing
-                    player.failedTurn = true;
-                    this.showFeedback(player, 'BAD TIMING!', 0xff0000);
-                }
-            } else {
-                // Pressed BAM before finishing sequence
-                player.failedTurn = true;
-                this.showFeedback(player, 'TOO EARLY!', 0xff0000);
-            }
-            this.updateScoreboard();
-            return;
-        }
-
         // Handle Sequence Input
         const expectedDirection = this.currentSequence[player.sequenceProgress];
 
@@ -356,8 +326,18 @@ class GameScene extends Phaser.Scene {
             player.ui.sprite.setFillStyle(0xaaaaaa); // Slight visual cue
 
             if (player.sequenceProgress === this.currentSequence.length) {
-                // Sequence complete, waiting for BAM
+                // Sequence complete!
+                player.score += 500;
+                player.finishedTurn = true;
                 player.ui.sprite.setFillStyle(0xffffff);
+                this.showFeedback(player, 'PERFECT!', 0x00ff00);
+
+                // Dance Animation
+                this.tweens.add({
+                    targets: player.ui.sprite, y: player.ui.sprite.y - 50, scaleX: 1.3, duration: 200, yoyo: true
+                });
+
+                this.updateScoreboard();
             }
         } else {
             // Wrong input!

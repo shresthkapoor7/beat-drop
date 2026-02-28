@@ -129,30 +129,6 @@
             grid-column: 2;
             grid-row: 3;
         }
-
-        .btn-bam {
-            background: #ff0044;
-            border-color: #ffcccc;
-            width: 90%;
-            max-width: 400px;
-            margin: 10px auto;
-            padding: 20px;
-            font-size: 2rem;
-            border-radius: 20px;
-            text-align: center;
-            font-weight: bold;
-            box-shadow: 0 8px 0 #990022, 0 15px 20px rgba(0, 0, 0, 0.4);
-            cursor: pointer;
-            transition: all 0.1s;
-            color: white;
-            text-transform: uppercase;
-        }
-
-        .btn-bam:active {
-            transform: translateY(8px);
-            box-shadow: 0 0px 0 #990022, 0 5px 10px rgba(0, 0, 0, 0.4);
-            background: #ff3366;
-        }
     </style>
 </head>
 
@@ -175,7 +151,6 @@
             <div class="btn" id="btn-right" data-dir="RIGHT">➡️</div>
             <div class="btn" id="btn-down" data-dir="DOWN">⬇️</div>
         </div>
-        <div class="btn-bam" data-dir="BAM">BAM!</div>
     </div>
 
     <script>
@@ -219,7 +194,7 @@
         });
 
         // Handle Inputs
-        const buttons = document.querySelectorAll('.btn, .btn-bam');
+        const buttons = document.querySelectorAll('.btn');
 
         // Provide haptic feedback and emit event
         function handlePress(e) {
