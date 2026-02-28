@@ -4,6 +4,9 @@ A multiplayer rhythm game built on **Lyria 3** — Google's latest real-time mus
 
 
 ![System Architecture](images/sys-arch.png)
+![Game Screen](images/game-screen.png)
+![Mobile Controller](images/mobile.jpg)
+![Game End](images/game-end.png)
 
 ## What It Does
 
