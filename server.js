@@ -24,20 +24,45 @@ app.use(express.static(path.join(__dirname, 'public')));
 // ── Lyria session (module-level so vote handler can update prompts) ───────────
 let lyriaSession = null;
 
-// ── Word pool — shown randomly per controller ─────────────────────────────────
+// ── Word pool — full 158 words from Lyria docs ────────────────────────────────
 const LYRIA_WORD_POOL = [
+  // Instruments
+  '303 Acid Bass', '808 Hip Hop Beat', 'Accordion', 'Alto Saxophone',
+  'Bagpipes', 'Balalaika Ensemble', 'Banjo', 'Bass Clarinet', 'Bongos',
+  'Boomy Bass', 'Bouzouki', 'Buchla Synths', 'Cello', 'Charango',
+  'Clavichord', 'Conga Drums', 'Didgeridoo', 'Dirty Synths', 'Djembe',
+  'Drumline', 'Dulcimer', 'Fiddle', 'Flamenco Guitar', 'Funk Drums',
+  'Glockenspiel', 'Guitar', 'Hang Drum', 'Harmonica', 'Harp',
+  'Harpsichord', 'Hurdy-gurdy', 'Kalimba', 'Koto', 'Lyre', 'Mandolin',
+  'Maracas', 'Marimba', 'Mbira', 'Mellotron', 'Metallic Twang',
+  'Moog Oscillations', 'Ocarina', 'Persian Tar', 'Pipa', 'Precision Bass',
+  'Ragtime Piano', 'Rhodes Piano', 'Shamisen', 'Shredding Guitar',
+  'Sitar', 'Slide Guitar', 'Smooth Pianos', 'Spacey Synths', 'Steel Drum',
+  'Synth Pads', 'Tabla', 'TR-909 Drum Machine', 'Trumpet', 'Tuba',
+  'Vibraphone', 'Viola Ensemble', 'Warm Acoustic Guitar', 'Woodwinds',
   // Genre
-  'Dubstep', 'Bossa Nova', 'Drum & Bass', 'Celtic Folk', 'Hyperpop',
-  'Disco Funk', 'Lo-Fi Hip Hop', 'Minimal Techno', 'Jazz Fusion', 'Reggae',
-  'Psytrance', 'Neo-Soul', 'Afrobeat', 'Chiptune', 'Trip Hop',
-  'Electro Swing', 'Deep House', 'Bluegrass', 'Orchestral Score', 'Ambient',
-  // Instrument
-  'Bagpipes', 'Moog Oscillations', 'Rhodes Piano', 'Tabla', 'Sitar',
-  '808 Hip Hop Beat', 'Harmonica', 'TR-909 Drum Machine', 'Spacey Synths',
-  'Hang Drum', 'Accordion', 'Cello',
+  'Acid Jazz', 'Afrobeat', 'Alternative Country', 'Baroque', 'Bengal Baul',
+  'Bhangra', 'Bluegrass', 'Blues Rock', 'Bossa Nova', 'Breakbeat',
+  'Celtic Folk', 'Chillout', 'Chiptune', 'Classic Rock', 'Contemporary R&B',
+  'Cumbia', 'Deep House', 'Disco Funk', 'Drum & Bass', 'Dubstep',
+  'EDM', 'Electro Swing', 'Funk Metal', 'G-funk', 'Garage Rock',
+  'Glitch Hop', 'Grime', 'Hyperpop', 'Indian Classical', 'Indie Electronic',
+  'Indie Folk', 'Indie Pop', 'Irish Folk', 'Jam Band', 'Jamaican Dub',
+  'Jazz Fusion', 'Latin Jazz', 'Lo-Fi Hip Hop', 'Marching Band', 'Merengue',
+  'New Jack Swing', 'Minimal Techno', 'Moombahton', 'Neo-Soul',
+  'Orchestral Score', 'Piano Ballad', 'Polka', 'Post-Punk',
+  '60s Psychedelic Rock', 'Psytrance', 'R&B', 'Reggae', 'Reggaeton',
+  'Renaissance Music', 'Salsa', 'Shoegaze', 'Ska', 'Surf Rock',
+  'Synthpop', 'Techno', 'Trance', 'Trap Beat', 'Trip Hop',
+  'Vaporwave', 'Witch House',
   // Mood
-  'Dreamy', 'Upbeat', 'Ominous Drone', 'Huge Drop', 'Chill',
-  'Glitchy Effects', 'Ethereal Ambience', 'Fat Beats', 'Weird Noises',
+  'Acoustic Instruments', 'Ambient', 'Bright Tones', 'Chill',
+  'Crunchy Distortion', 'Danceable', 'Dreamy', 'Echo', 'Emotional',
+  'Ethereal Ambience', 'Experimental', 'Fat Beats', 'Funky',
+  'Glitchy Effects', 'Huge Drop', 'Live Performance', 'Lo-fi',
+  'Ominous Drone', 'Psychedelic', 'Rich Orchestration', 'Saturated Tones',
+  'Subdued Melody', 'Sustained Chords', 'Swirling Phasers', 'Tight Groove',
+  'Unsettling', 'Upbeat', 'Virtuoso', 'Weird Noises',
 ];
 
 const WORDS_PER_USER = 5;
@@ -95,6 +120,41 @@ function pickRandom(arr, n) {
   return [...arr].sort(() => Math.random() - 0.5).slice(0, n);
 }
 
+// Shared: tally votes → update Lyria + notify host + controllers
+async function applyVoteResult(votes) {
+  const sorted = Object.entries(votes).sort(([, a], [, b]) => b - a);
+  const top10  = sorted.slice(0, 10);
+  const winner = top10[0]?.[0] ?? null;
+  const result = { winner, votes: { ...votes } };
+
+  if (hostSocket) hostSocket.emit('word_panel_result', result);
+  players.forEach((_, sid) => io.to(sid).emit('word_panel_result', result));
+
+  if (top10.length > 0 && lyriaSession) {
+    try {
+      const maxCount = top10[0][1];
+      const weightedPrompts = [
+        ...top10.slice(0, 5).map(([word, count]) => ({
+          text: word, weight: Math.max(1.0, (count / maxCount) * 3.0),
+        })),
+        ...top10.slice(5).map(([word]) => ({ text: word, weight: 0.4 })),
+        ANCHOR_PROMPT,
+      ];
+      const preset = WORD_PRESETS[winner] ?? DEFAULT_PRESET;
+      await lyriaSession.setWeightedPrompts({ weightedPrompts });
+      await lyriaSession.setMusicGenerationConfig({
+        musicGenerationConfig: { bpm: 118, ...preset },
+      });
+      console.log(`[Lyria] Updated → "${winner}" density:${preset.density} brightness:${preset.brightness}`);
+    } catch (err) {
+      console.error('[Lyria] Update failed:', err.message);
+    }
+  }
+
+  console.log('[Panel] Result:', result);
+  return result;
+}
+
 // ── Word-panel vote state ─────────────────────────────────────────────────────
 let panelVotes = {};
 let panelTimer = null;
@@ -142,6 +202,47 @@ async function generateInsult(playerName) {
     return "You missed the beat!";
   }
 }
+
+// ── Test endpoint: simulate a full vote panel with random votes ───────────────
+app.get('/test-votes', (_req, res) => {
+  if (!hostSocket) return res.json({ error: 'No host connected' });
+
+  const duration  = 4 * PANEL_BEAT_MS; // same as real panel
+  const fakeUsers = 12; // simulated voters
+
+  // Pick random words like real controllers would see (overlapping subsets)
+  const roundWords = new Set();
+  for (let i = 0; i < fakeUsers; i++) {
+    pickRandom(LYRIA_WORD_POOL, WORDS_PER_USER).forEach(w => roundWords.add(w));
+  }
+  const wordList = [...roundWords];
+
+  // Tell host panel is starting
+  panelVotes = {};
+  hostSocket.emit('panel_start', { words: wordList, duration });
+
+  // Drip random votes in over the panel duration
+  let sent = 0;
+  const totalVotes = fakeUsers;
+  const interval   = Math.floor(duration / totalVotes);
+
+  const drip = setInterval(async () => {
+    if (sent >= totalVotes) {
+      clearInterval(drip);
+      await applyVoteResult({ ...panelVotes });
+      panelVotes = {};
+      return;
+    }
+
+    // Each fake user votes for a random word from the pool
+    const word = wordList[Math.floor(Math.random() * wordList.length)];
+    panelVotes[word] = (panelVotes[word] || 0) + 1;
+    hostSocket.emit('vote_update', { votes: { ...panelVotes } });
+    sent++;
+  }, interval);
+
+  res.json({ ok: true, words: wordList.length, voters: fakeUsers, duration });
+});
 
 // ── Lyria connection ──────────────────────────────────────────────────────────
 async function connectLyria() {
@@ -262,56 +363,19 @@ io.on('connection', (socket) => {
 
     const duration = 4 * PANEL_BEAT_MS; // ≈ 2033ms
 
-    // Send a different random subset to each controller
+    // Send a different random subset to each controller, collect all round words
+    const roundWords = new Set();
     players.forEach((_, sid) => {
-      io.to(sid).emit('show_word_panel', {
-        words: pickRandom(LYRIA_WORD_POOL, WORDS_PER_USER),
-        duration,
-      });
+      const words = pickRandom(LYRIA_WORD_POOL, WORDS_PER_USER);
+      words.forEach(w => roundWords.add(w));
+      io.to(sid).emit('show_word_panel', { words, duration });
     });
 
+    // Tell host which words are in play this round
+    if (hostSocket) hostSocket.emit('panel_start', { words: [...roundWords], duration });
+
     panelTimer = setTimeout(async () => {
-      // Sort all voted words by count descending, take top 10
-      const sorted = Object.entries(panelVotes).sort(([, a], [, b]) => b - a);
-      const top10 = sorted.slice(0, 10);
-
-      const result = { top: top10.map(([w]) => w), votes: { ...panelVotes } };
-      console.log('[Panel] Result:', result);
-
-      // Notify host + all controllers (winner = top voted word)
-      const winner = top10[0]?.[0] ?? null;
-      if (hostSocket) hostSocket.emit('word_panel_result', { winner, votes: { ...panelVotes } });
-      players.forEach((_, sid) => io.to(sid).emit('word_panel_result', { winner, votes: { ...panelVotes } }));
-
-      if (top10.length > 0 && lyriaSession) {
-        try {
-          const maxCount = top10[0][1];
-
-          // Top 5: weight proportional to vote count (max 3.0, min 1.0)
-          // Rank 6-10: flat low weight 0.4 — still influence but gently
-          const weightedPrompts = [
-            ...top10.slice(0, 5).map(([word, count]) => ({
-              text: word,
-              weight: Math.max(1.0, (count / maxCount) * 3.0),
-            })),
-            ...top10.slice(5).map(([word]) => ({ text: word, weight: 0.4 })),
-            ANCHOR_PROMPT, // always keep a danceable pulse
-          ];
-
-          // Apply config preset from the top-voted word
-          const preset = WORD_PRESETS[winner] ?? DEFAULT_PRESET;
-
-          await lyriaSession.setWeightedPrompts({ weightedPrompts });
-          await lyriaSession.setMusicGenerationConfig({
-            musicGenerationConfig: { bpm: 118, ...preset },
-          });
-
-          console.log(`[Lyria] Updated → top:"${winner}" density:${preset.density} brightness:${preset.brightness}`);
-        } catch (err) {
-          console.error('[Lyria] Update failed:', err.message);
-        }
-      }
-
+      await applyVoteResult({ ...panelVotes });
       panelVotes = {};
       panelTimer = null;
     }, duration);
@@ -321,6 +385,8 @@ io.on('connection', (socket) => {
     if (!players.has(socket.id) || !word) return;
     panelVotes[word] = (panelVotes[word] || 0) + 1;
     console.log(`[Vote] ${players.get(socket.id).name}: "${word}"`);
+    // Live vote count update to host sidebar
+    if (hostSocket) hostSocket.emit('vote_update', { votes: { ...panelVotes } });
   });
 
   socket.on('disconnect', () => {
