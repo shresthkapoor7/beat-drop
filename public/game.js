@@ -9,6 +9,11 @@ const qrContainer = document.getElementById('qr-container');
 
 let players = {}; // Map socket.id -> Phaser Sprite
 
+const BPM         = 118;
+const BEAT_MS     = 60000 / BPM;   // ≈ 508ms per beat
+const TURN_BEATS  = 8;             // 2 bars of 4/4 — aligns with Lyria's 118 BPM output
+const PANEL_WORDS = ['groovy', 'dreamy', 'electronic', 'jazz', 'upbeat', 'chill'];
+
 // 1. Fetch Room ID and Setup QR Code
 async function initializeRoom() {
     try {
@@ -61,6 +66,55 @@ socket.on('input', (data) => {
     if (gameScene) gameScene.handleInput(data);
 });
 
+socket.on('word_panel_result', ({ winner }) => {
+    if (winner && window.gameScene) window.gameScene.showWordResult(winner);
+});
+
+// ── Web Audio — stream Lyria PCM from server ──────────────────────────────────
+// Raw PCM: 16-bit signed, 48kHz, stereo interleaved (L R L R ...)
+let audioCtx     = null;
+let nextPlayTime = 0;
+
+function ensureAudio() {
+    if (!audioCtx) {
+        audioCtx     = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 48000 });
+        nextPlayTime = audioCtx.currentTime + 0.1;
+    }
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+}
+
+socket.on('audio_chunk', (b64) => {
+    ensureAudio();
+    try {
+        const binary = atob(b64);
+        const bytes  = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+
+        const int16      = new Int16Array(bytes.buffer);
+        const frameCount = Math.floor(int16.length / 2);
+        const buf        = audioCtx.createBuffer(2, frameCount, 48000);
+        const L          = buf.getChannelData(0);
+        const R          = buf.getChannelData(1);
+        for (let i = 0; i < frameCount; i++) {
+            L[i] = int16[i * 2]     / 32768;
+            R[i] = int16[i * 2 + 1] / 32768;
+        }
+
+        const startAt = Math.max(nextPlayTime, audioCtx.currentTime + 0.02);
+        const src     = audioCtx.createBufferSource();
+        src.buffer    = buf;
+        src.connect(audioCtx.destination);
+        src.start(startAt);
+        nextPlayTime  = startAt + buf.duration;
+    } catch (e) {
+        console.warn('[Audio] chunk error:', e.message);
+    }
+});
+
+// Unlock AudioContext on first interaction
+document.addEventListener('click',   ensureAudio, { once: true });
+document.addEventListener('keydown', ensureAudio, { once: true });
+
 
 // 3. Phaser Game Configuration
 class GameScene extends Phaser.Scene {
@@ -69,7 +123,7 @@ class GameScene extends Phaser.Scene {
         this.colors = [0xff0044, 0x00ff00, 0x0044ff, 0xffff00, 0xff00ff, 0x00ffff];
         this.gameStarted = false;
 
-        this.turnDuration = 3500; // ms
+        this.turnDuration = TURN_BEATS * BEAT_MS; // 8 beats ≈ 4067ms, aligned to 118 BPM
         this.turnTimer = null;
 
         this.currentSequence = [];
@@ -175,8 +229,15 @@ class GameScene extends Phaser.Scene {
             setTimeout(() => overlay.style.display = 'none', 500);
         }
 
-        const bgMusic = document.getElementById('bg-music');
-        if (bgMusic) bgMusic.play().catch(e => console.error("Audio play blocked", e));
+        // Audio is streamed from Lyria via Web Audio — no video element needed
+        ensureAudio();
+
+        // Every 16 beats (2 turns), open the word selection panel on all controllers
+        this.time.addEvent({
+            delay: 16 * BEAT_MS,
+            loop: true,
+            callback: () => socket.emit('word_panel_start', { words: PANEL_WORDS }),
+        });
 
         this.startNextTurn();
     }
@@ -305,6 +366,7 @@ class GameScene extends Phaser.Scene {
         // Glowing Platform
         const platform = this.add.ellipse(x, y + 60, 80, 25, 0x00f3ff, 0.2);
         platform.setStrokeStyle(2, 0x00f3ff, 0.5);
+
 
         // Player Sprite (Image)
         const sprite = this.add.sprite(x, y, `char${charIndex}`);
@@ -458,6 +520,18 @@ class GameScene extends Phaser.Scene {
             player.ui.sprite.setTint(0x444444);
             this.showFeedback(player, 'WRONG MOVE!', 0xff0000);
         }
+    }
+
+    showWordResult(word) {
+        const banner = this.add.text(400, 55, `♪  "${word}"  wins the vibe!`, {
+            fontSize: '22px', color: '#66fcf1', fontStyle: 'bold',
+            backgroundColor: '#0b0c10cc', padding: { x: 14, y: 6 },
+        }).setOrigin(0.5).setDepth(10);
+
+        this.tweens.add({
+            targets: banner, alpha: 0, duration: 1000, delay: 2000,
+            onComplete: () => banner.destroy(),
+        });
     }
 
     showFeedback(player, text, colorCode) {
