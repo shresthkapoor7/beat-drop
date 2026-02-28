@@ -107,8 +107,12 @@ class GameScene extends Phaser.Scene {
             this.cameras.main.width,
             this.cameras.main.height,
             64, 64,
-            0x0b0c10, 1, 0x1f2833, 0.5
+            0x050508, 1, 0x1f2833, 0.2
         );
+
+        // Animated background pulse
+        this.bgPulse = this.add.rectangle(400, 300, 800, 600, 0x00f3ff, 0).setDepth(-1);
+        this.tweens.add({ targets: this.bgPulse, alpha: 0.05, duration: 2000, yoyo: true, repeat: -1 });
 
         // --- Beat Bar UI ---
         this.beatBarBg = this.add.rectangle(this.beatBarX, this.beatBarY, this.beatBarWidth, 20, 0x1f2833).setOrigin(0, 0.5);
@@ -127,18 +131,9 @@ class GameScene extends Phaser.Scene {
             fontSize: '48px', color: '#ffffff', fontFamily: 'sans-serif'
         }).setOrigin(0.5, 0.5);
 
-        // --- Scoreboard UI ---
-        this.scoreboardBg = this.add.rectangle(800, 0, 200, 600, 0x000000, 0.7).setOrigin(1, 0);
-        this.boardTitle = this.add.text(700, 20, 'LEADERBOARD', { fontSize: '20px', color: '#66fcf1', fontStyle: 'bold' }).setOrigin(0.5, 0);
-        this.playerNamesTexts = {}; // Maps id to Text object
-
-        // Start Overlay
-        this.startOverlay = this.add.rectangle(400, 300, 800, 600, 0x000000, 0.9);
-        this.startText = this.add.text(400, 300, 'WAITING FOR PLAYERS\nCLICK TO START', {
-            fontSize: '32px', color: '#66fcf1', align: 'center', fontStyle: 'bold'
-        }).setOrigin(0.5, 0.5);
-
-        this.tweens.add({ targets: this.startText, alpha: 0.2, duration: 800, yoyo: true, repeat: -1 });
+        // Edge Glow Vignette
+        const vignette = this.add.rectangle(400, 300, 800, 600, 0x000000, 0).setDepth(100);
+        vignette.setStrokeStyle(40, 0x000000, 0.7);
 
         // Particle Manager for the burst effect
         this.particles = this.add.particles(0, 0, 'flare', {
@@ -157,21 +152,28 @@ class GameScene extends Phaser.Scene {
         graphics.generateTexture('flare', 16, 16);
         graphics.destroy();
 
-        // Start game on click
-        this.input.on('pointerdown', () => { if (!this.gameStarted) this.startGame(); });
+        // Start game on click (HTML overlay)
+        document.getElementById('waiting-overlay').addEventListener('click', () => {
+            if (!this.gameStarted) this.startGame();
+        });
 
         window.gameScene = this;
     }
 
     startGame() {
         if (Object.keys(players).length === 0) {
-            this.startText.setText("WAITING FOR PLAYERS\n(Need at least 1 player to start!)");
+            const hint = document.querySelector('.click-start');
+            if (hint) hint.innerText = "WAITING FOR PLAYERS (Need at least 1!)";
             return;
         }
 
         this.gameStarted = true;
-        this.startOverlay.destroy();
-        this.startText.destroy();
+
+        const overlay = document.getElementById('waiting-overlay');
+        if (overlay) {
+            overlay.style.opacity = '0';
+            setTimeout(() => overlay.style.display = 'none', 500);
+        }
 
         const bgMusic = document.getElementById('bg-music');
         if (bgMusic) bgMusic.play().catch(e => console.error("Audio play blocked", e));
@@ -241,21 +243,31 @@ class GameScene extends Phaser.Scene {
     updateScoreboard() {
         // Sort players by score descending
         const sortedPlayers = Object.values(players).sort((a, b) => b.score - a.score);
+        const listContainer = document.getElementById('leaderboard-list');
+        if (!listContainer) return;
 
-        let startY = 80;
+        listContainer.innerHTML = '';
+
         sortedPlayers.forEach((p, index) => {
-            if (!this.playerNamesTexts[p.id]) {
-                this.playerNamesTexts[p.id] = this.add.text(610, 0, '', {
-                    fontSize: '18px', color: '#ffffff', fontStyle: 'bold'
-                });
+            const row = document.createElement('div');
+            row.className = `player-row ${index === 0 ? 'rank-1' : ''}`;
+
+            if (index !== 0) {
+                row.style.color = this.numberToHex(p.color);
+                row.style.borderColor = this.numberToHex(p.color);
             }
 
-            const txt = this.playerNamesTexts[p.id];
-            txt.y = startY + (index * 40);
+            const nameEl = document.createElement('div');
+            nameEl.className = 'player-name';
+            nameEl.textContent = `#${index + 1} ${p.name.substring(0, 8)}`;
 
-            // Format: #1 Name - Score
-            txt.setText(`#${index + 1} ${p.name.substring(0, 8)}\n${p.score}`);
-            txt.setColor(this.numberToHex(p.color));
+            const scoreEl = document.createElement('div');
+            scoreEl.className = 'player-score';
+            scoreEl.textContent = `${p.score} PTS`;
+
+            row.appendChild(nameEl);
+            row.appendChild(scoreEl);
+            listContainer.appendChild(row);
         });
     }
 
@@ -290,17 +302,20 @@ class GameScene extends Phaser.Scene {
 
         const charIndex = this.getAvailableCharIndex();
 
+        // Glowing Platform
+        const platform = this.add.ellipse(x, y + 60, 80, 25, 0x00f3ff, 0.2);
+        platform.setStrokeStyle(2, 0x00f3ff, 0.5);
+
         // Player Sprite (Image)
         const sprite = this.add.sprite(x, y, `char${charIndex}`);
 
         // Scale down the sprite if it's too large naturally
-        // Assuming char/images are large, let's set a standard height
-        const targetHeight = 120;
+        const targetHeight = 130;
         const scale = targetHeight / sprite.height;
         sprite.setScale(scale);
 
         // Player Name Tag above sprite
-        const nameTag = this.add.text(x, y - (sprite.height * scale / 2) - 15, name || 'Player', { fontSize: '14px', color: '#ffffff', backgroundColor: '#000000' }).setOrigin(0.5);
+        const nameTag = this.add.text(x, y - (sprite.height * scale / 2) - 15, name || 'Player', { fontFamily: 'Rajdhani', fontSize: '18px', color: '#ffffff', backgroundColor: '#000000', padding: { x: 4, y: 2 } }).setOrigin(0.5);
 
         // Idle floating tween
         this.tweens.add({
@@ -316,7 +331,7 @@ class GameScene extends Phaser.Scene {
             sequenceProgress: 0,
             failedTurn: false,
             finishedTurn: false,
-            ui: { sprite, nameTag, baseScale: scale, baseY: y }
+            ui: { sprite, platform, nameTag, baseScale: scale, baseY: y }
         };
 
         // If game is already started, ensure they see the current sequence
@@ -331,11 +346,8 @@ class GameScene extends Phaser.Scene {
         if (players[id]) {
             const p = players[id];
             p.ui.sprite.destroy();
+            p.ui.platform.destroy();
             p.ui.nameTag.destroy();
-            if (this.playerNamesTexts[id]) {
-                this.playerNamesTexts[id].destroy();
-                delete this.playerNamesTexts[id];
-            }
             delete players[id];
             this.updateScoreboard();
         }

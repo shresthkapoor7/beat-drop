@@ -10,86 +10,314 @@
     <script src="https://cdn.jsdelivr.net/npm/phaser@3.80.1/dist/phaser.min.js"></script>
     <!-- Simple QR Code Library -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@500;700&display=swap"
+        rel="stylesheet">
 
     <style>
+        :root {
+            --neon-blue: #00f3ff;
+            --neon-pink: #ff007f;
+            --neon-green: #00ff66;
+            --dark-bg: #050508;
+            --panel-bg: rgba(10, 15, 25, 0.7);
+        }
+
         body,
         html {
             margin: 0;
             padding: 0;
             width: 100%;
             height: 100%;
-            background-color: #0b0c10;
-            color: #66fcf1;
-            font-family: 'Courier New', Courier, monospace;
+            background-color: var(--dark-bg);
+            color: var(--neon-blue);
+            font-family: 'Rajdhani', sans-serif;
             overflow: hidden;
             display: flex;
             flex-direction: column;
+            background-image:
+                linear-gradient(rgba(0, 243, 255, 0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0, 243, 255, 0.03) 1px, transparent 1px);
+            background-size: 30px 30px;
         }
 
         #header {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding: 20px 40px;
-            background: rgba(31, 40, 51, 0.8);
-            border-bottom: 2px solid #45a29e;
+            padding: 10px 30px;
+            background: var(--panel-bg);
+            border-bottom: 2px solid var(--neon-blue);
+            box-shadow: 0 0 20px rgba(0, 243, 255, 0.2);
             z-index: 10;
+            backdrop-filter: blur(10px);
         }
 
         h1 {
             margin: 0;
-            font-size: 2.5rem;
+            font-size: 2rem;
+            font-family: 'Orbitron', sans-serif;
             text-transform: uppercase;
             letter-spacing: 4px;
-            text-shadow: 0 0 10px #66fcf1;
+            text-shadow: 0 0 10px var(--neon-blue), 0 0 20px var(--neon-blue);
+            animation: pulse-glow 2s infinite alternate;
+        }
+
+        @keyframes pulse-glow {
+            from {
+                text-shadow: 0 0 10px var(--neon-blue), 0 0 20px var(--neon-blue);
+            }
+
+            to {
+                text-shadow: 0 0 15px var(--neon-blue), 0 0 30px var(--neon-blue), 0 0 40px var(--neon-blue);
+            }
         }
 
         .info-panel {
             display: flex;
             align-items: center;
-            gap: 30px;
+            gap: 20px;
         }
 
         .stat-box {
-            background: #1f2833;
-            padding: 10px 20px;
-            border-radius: 8px;
-            border: 1px solid #45a29e;
+            background: rgba(0, 0, 0, 0.6);
+            padding: 5px 15px;
+            border-radius: 4px;
+            border: 1px solid rgba(0, 243, 255, 0.3);
             text-align: center;
+            box-shadow: inset 0 0 10px rgba(0, 243, 255, 0.1);
         }
 
         .stat-value {
-            font-size: 2rem;
-            font-weight: bold;
-            color: #edf5e1;
-            text-shadow: 0 0 8px #edf5e1;
+            font-family: 'Orbitron', monospace;
+            font-size: 1.8rem;
+            font-weight: 700;
+            color: #fff;
+        }
+
+        #room-id-display {
+            color: var(--neon-pink);
+            text-shadow: 0 0 10px var(--neon-pink);
+            letter-spacing: 2px;
         }
 
         .stat-label {
-            font-size: 0.8rem;
+            font-size: 0.75rem;
             text-transform: uppercase;
-            opacity: 0.8;
-            margin-top: 5px;
+            letter-spacing: 1px;
+            color: rgba(255, 255, 255, 0.6);
+            margin-top: 2px;
         }
 
-        #qr-container {
-            background: white;
-            padding: 10px;
-            border-radius: 8px;
+        #main-area {
+            display: flex;
+            flex-grow: 1;
+            padding: 20px;
+            gap: 20px;
+            overflow: hidden;
+            position: relative;
         }
 
-        #game-container {
+        #game-wrapper {
             flex-grow: 1;
             display: flex;
             justify-content: center;
             align-items: center;
             position: relative;
+            min-width: 0;
         }
 
-        /* Phaser Canvas Wrapper */
+        #game-container {
+            display: inline-block;
+            position: relative;
+        }
+
         canvas {
-            box-shadow: 0 0 30px rgba(102, 252, 241, 0.2);
-            border-radius: 10px;
+            box-shadow: 0 0 40px rgba(0, 243, 255, 0.15);
+            border-radius: 8px;
+            border: 1px solid rgba(0, 243, 255, 0.2);
+            max-width: 100%;
+            height: auto;
+            display: block;
+        }
+
+        #waiting-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(5, 5, 8, 0.85);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 20;
+            backdrop-filter: blur(5px);
+            border-radius: 8px;
+            cursor: pointer;
+            transition: opacity 0.5s ease;
+        }
+
+        .waiting-title {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 2.5rem;
+            color: var(--neon-blue);
+            text-shadow: 0 0 20px var(--neon-blue), 0 0 40px var(--neon-blue);
+            margin: 0 0 10px 0;
+            text-align: center;
+            animation: pulse-glow 2s infinite alternate;
+        }
+
+        .waiting-subtitle {
+            font-family: 'Rajdhani', sans-serif;
+            font-size: 1.2rem;
+            color: #fff;
+            letter-spacing: 2px;
+            margin: 0 0 20px 0;
+        }
+
+        #qr-container {
+            background: rgba(255, 255, 255, 1);
+            padding: 10px;
+            border-radius: 8px;
+            box-shadow: 0 0 30px rgba(0, 243, 255, 0.6);
+            border: 2px solid var(--neon-blue);
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: center;
+        }
+
+        #qr-container img {
+            display: block;
+        }
+
+        .click-start {
+            color: var(--neon-pink);
+            font-size: 1rem;
+            letter-spacing: 2px;
+            animation: pulse-glow 1.5s infinite alternate;
+        }
+
+        #leaderboard-side {
+            width: 280px;
+            background: rgba(10, 15, 25, 0.8);
+            border-radius: 8px;
+            border: 1px solid var(--neon-blue);
+            box-shadow: inset 0 0 20px rgba(0, 243, 255, 0.1), 0 0 20px rgba(0, 243, 255, 0.2);
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            backdrop-filter: blur(5px);
+        }
+
+        #leaderboard-side h2 {
+            font-family: 'Orbitron', sans-serif;
+            color: var(--neon-blue);
+            font-size: 1.2rem;
+            text-align: center;
+            margin-top: 0;
+            margin-bottom: 15px;
+            border-bottom: 2px solid var(--neon-blue);
+            padding-bottom: 10px;
+            text-shadow: 0 0 10px var(--neon-blue);
+            letter-spacing: 2px;
+        }
+
+        #leaderboard-list {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            overflow-y: auto;
+        }
+
+        .player-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 15px;
+            background: rgba(0, 243, 255, 0.05);
+            border: 1px solid rgba(0, 243, 255, 0.2);
+            border-radius: 4px;
+            font-size: 1.1rem;
+            transition: all 0.2s ease;
+        }
+
+        .player-row.rank-1 {
+            border-color: var(--neon-green);
+            background: rgba(0, 255, 102, 0.1);
+            box-shadow: 0 0 15px rgba(0, 255, 102, 0.3);
+            color: var(--neon-green) !important;
+            text-shadow: 0 0 5px var(--neon-green);
+        }
+
+        .player-name {
+            font-weight: bold;
+        }
+
+        .player-score {
+            font-family: 'Orbitron', monospace;
+            font-size: 0.9rem;
+        }
+
+        /* Bottom Hype Meter */
+        #hype-meter-container {
+            width: 100%;
+            height: 25px;
+            background: #000;
+            border-top: 1px solid var(--neon-pink);
+            box-shadow: 0 -5px 15px rgba(255, 0, 127, 0.2);
+            position: relative;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+        }
+
+        #hype-meter-fill {
+            height: 100%;
+            width: 50%;
+            /* Default partial fill */
+            background: linear-gradient(90deg, #ff007f 0%, #ff4d4d 100%);
+            box-shadow: 0 0 20px #ff007f, 0 0 40px #ff007f;
+            transition: width 0.3s ease-out;
+            position: relative;
+        }
+
+        #hype-meter-fill::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.4), transparent);
+            animation: sheer 2s infinite linear;
+        }
+
+        @keyframes sheer {
+            0% {
+                transform: translateX(-100%);
+            }
+
+            100% {
+                transform: translateX(100%);
+            }
+        }
+
+        .hype-label {
+            position: absolute;
+            width: 100%;
+            text-align: center;
+            font-family: 'Orbitron', sans-serif;
+            font-size: 0.8rem;
+            letter-spacing: 5px;
+            color: rgba(255, 255, 255, 0.8);
+            font-weight: bold;
+            text-shadow: 0 0 5px #000;
+            z-index: 2;
         }
     </style>
 </head>
@@ -107,11 +335,33 @@
                 <div class="stat-value" id="player-count">0</div>
                 <div class="stat-label">Players</div>
             </div>
-            <div id="qr-container"></div>
         </div>
     </div>
 
-    <div id="game-container"></div>
+    <div id="main-area">
+        <div id="game-wrapper">
+            <div id="game-container">
+                <div id="waiting-overlay">
+                    <div class="waiting-title">WAITING FOR DANCERS</div>
+                    <div class="waiting-subtitle">SCAN TO JOIN</div>
+                    <div id="qr-container"></div>
+                    <div class="click-start">CLICK ANYWHERE HERE TO START</div>
+                </div>
+            </div>
+        </div>
+
+        <div id="leaderboard-side">
+            <h2>LEADERBOARD</h2>
+            <div id="leaderboard-list">
+                <!-- Players injected here dynamically -->
+            </div>
+        </div>
+    </div>
+
+    <div id="hype-meter-container">
+        <div id="hype-meter-fill"></div>
+        <div class="hype-label">H Y P E</div>
+    </div>
 
     <!-- Hidden video element to play the mp4 as background music -->
     <video id="bg-music" src="/music/music.mp4" loop style="display:none"></video>
