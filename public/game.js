@@ -65,9 +65,9 @@ socket.on('input', (data) => {
     if (gameScene) gameScene.handleInput(data);
 });
 
-socket.on('word_panel_result', ({ winner }) => {
+socket.on('word_panel_result', ({ winner, votes }) => {
     if (winner && window.gameScene) window.gameScene.showWordResult(winner);
-    window.dispatchEvent(new CustomEvent('lyria_panel_result', { detail: { winner } }));
+    window.dispatchEvent(new CustomEvent('lyria_panel_result', { detail: { winner, votes } }));
 });
 
 // Bridge socket events to window — vibe-sidebar.js listens here

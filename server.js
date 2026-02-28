@@ -120,6 +120,41 @@ function pickRandom(arr, n) {
   return [...arr].sort(() => Math.random() - 0.5).slice(0, n);
 }
 
+// Shared: tally votes → update Lyria + notify host + controllers
+async function applyVoteResult(votes) {
+  const sorted = Object.entries(votes).sort(([, a], [, b]) => b - a);
+  const top10  = sorted.slice(0, 10);
+  const winner = top10[0]?.[0] ?? null;
+  const result = { winner, votes: { ...votes } };
+
+  if (hostSocket) hostSocket.emit('word_panel_result', result);
+  players.forEach((_, sid) => io.to(sid).emit('word_panel_result', result));
+
+  if (top10.length > 0 && lyriaSession) {
+    try {
+      const maxCount = top10[0][1];
+      const weightedPrompts = [
+        ...top10.slice(0, 5).map(([word, count]) => ({
+          text: word, weight: Math.max(1.0, (count / maxCount) * 3.0),
+        })),
+        ...top10.slice(5).map(([word]) => ({ text: word, weight: 0.4 })),
+        ANCHOR_PROMPT,
+      ];
+      const preset = WORD_PRESETS[winner] ?? DEFAULT_PRESET;
+      await lyriaSession.setWeightedPrompts({ weightedPrompts });
+      await lyriaSession.setMusicGenerationConfig({
+        musicGenerationConfig: { bpm: 118, ...preset },
+      });
+      console.log(`[Lyria] Updated → "${winner}" density:${preset.density} brightness:${preset.brightness}`);
+    } catch (err) {
+      console.error('[Lyria] Update failed:', err.message);
+    }
+  }
+
+  console.log('[Panel] Result:', result);
+  return result;
+}
+
 // ── Word-panel vote state ─────────────────────────────────────────────────────
 let panelVotes = {};
 let panelTimer  = null;
@@ -139,6 +174,47 @@ let   hostSocket    = null;
 const players       = new Map();
 
 app.get('/room', (_req, res) => res.json({ roomId: currentRoomId }));
+
+// ── Test endpoint: simulate a full vote panel with random votes ───────────────
+app.get('/test-votes', (_req, res) => {
+  if (!hostSocket) return res.json({ error: 'No host connected' });
+
+  const duration  = 4 * PANEL_BEAT_MS; // same as real panel
+  const fakeUsers = 12; // simulated voters
+
+  // Pick random words like real controllers would see (overlapping subsets)
+  const roundWords = new Set();
+  for (let i = 0; i < fakeUsers; i++) {
+    pickRandom(LYRIA_WORD_POOL, WORDS_PER_USER).forEach(w => roundWords.add(w));
+  }
+  const wordList = [...roundWords];
+
+  // Tell host panel is starting
+  panelVotes = {};
+  hostSocket.emit('panel_start', { words: wordList, duration });
+
+  // Drip random votes in over the panel duration
+  let sent = 0;
+  const totalVotes = fakeUsers;
+  const interval   = Math.floor(duration / totalVotes);
+
+  const drip = setInterval(async () => {
+    if (sent >= totalVotes) {
+      clearInterval(drip);
+      await applyVoteResult({ ...panelVotes });
+      panelVotes = {};
+      return;
+    }
+
+    // Each fake user votes for a random word from the pool
+    const word = wordList[Math.floor(Math.random() * wordList.length)];
+    panelVotes[word] = (panelVotes[word] || 0) + 1;
+    hostSocket.emit('vote_update', { votes: { ...panelVotes } });
+    sent++;
+  }, interval);
+
+  res.json({ ok: true, words: wordList.length, voters: fakeUsers, duration });
+});
 
 // ── Lyria connection ──────────────────────────────────────────────────────────
 async function connectLyria() {
@@ -251,47 +327,7 @@ io.on('connection', (socket) => {
     if (hostSocket) hostSocket.emit('panel_start', { words: [...roundWords], duration });
 
     panelTimer = setTimeout(async () => {
-      // Sort all voted words by count descending, take top 10
-      const sorted = Object.entries(panelVotes).sort(([, a], [, b]) => b - a);
-      const top10  = sorted.slice(0, 10);
-
-      const result = { top: top10.map(([w]) => w), votes: { ...panelVotes } };
-      console.log('[Panel] Result:', result);
-
-      // Notify host + all controllers (winner = top voted word)
-      const winner = top10[0]?.[0] ?? null;
-      if (hostSocket) hostSocket.emit('word_panel_result', { winner, votes: { ...panelVotes } });
-      players.forEach((_, sid) => io.to(sid).emit('word_panel_result', { winner, votes: { ...panelVotes } }));
-
-      if (top10.length > 0 && lyriaSession) {
-        try {
-          const maxCount = top10[0][1];
-
-          // Top 5: weight proportional to vote count (max 3.0, min 1.0)
-          // Rank 6-10: flat low weight 0.4 — still influence but gently
-          const weightedPrompts = [
-            ...top10.slice(0, 5).map(([word, count]) => ({
-              text:   word,
-              weight: Math.max(1.0, (count / maxCount) * 3.0),
-            })),
-            ...top10.slice(5).map(([word]) => ({ text: word, weight: 0.4 })),
-            ANCHOR_PROMPT, // always keep a danceable pulse
-          ];
-
-          // Apply config preset from the top-voted word
-          const preset = WORD_PRESETS[winner] ?? DEFAULT_PRESET;
-
-          await lyriaSession.setWeightedPrompts({ weightedPrompts });
-          await lyriaSession.setMusicGenerationConfig({
-            musicGenerationConfig: { bpm: 118, ...preset },
-          });
-
-          console.log(`[Lyria] Updated → top:"${winner}" density:${preset.density} brightness:${preset.brightness}`);
-        } catch (err) {
-          console.error('[Lyria] Update failed:', err.message);
-        }
-      }
-
+      await applyVoteResult({ ...panelVotes });
       panelVotes = {};
       panelTimer  = null;
     }, duration);

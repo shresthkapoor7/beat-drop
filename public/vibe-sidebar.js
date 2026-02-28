@@ -190,18 +190,19 @@ window.addEventListener('lyria_vote_update', ({ detail: { votes: v } }) => {
 
 window.addEventListener('lyria_panel_result', ({ detail: { winner, votes: v } }) => {
   clearInterval(countdownTimer);
-  countdownEl.textContent = '';
+  countdownEl.textContent    = '';
+  sidebarTitleEl.textContent = 'VIBE';
   mode      = 'result';
   liveVotes = v || {};
 
-  // Build top 5 from vote counts
+  // Build top 5 from vote counts — persists until next panel_start
   const sorted = Object.entries(liveVotes)
     .sort(([, a], [, b]) => b - a)
     .slice(0, 5);
   top5 = sorted.map(([word, count], rank) => ({ word, count, rank }));
 
-  sidebarTitleEl.textContent = 'TOP VIBES';
-  if (winner) vibeCurrentEl.innerHTML = `<span>${winner}</span>`;
+  // Only show winner name, no word list
+  vibeCurrentEl.innerHTML = winner ? `<span>${winner}</span>` : '';
 
   refreshAll();
 });
