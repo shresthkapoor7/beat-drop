@@ -72,6 +72,8 @@ socket.on('player_insult', ({ socketId, insult }) => {
 socket.on('word_panel_result', ({ winner, votes }) => {
     if (winner && window.gameScene) window.gameScene.showWordResult(winner);
     window.dispatchEvent(new CustomEvent('lyria_panel_result', { detail: { winner, votes } }));
+    // Chain: schedule next vote 2 turns (16 beats) after this result
+    if (window.gameScene) window.gameScene.scheduleNextVote();
 });
 
 // Bridge socket events to window — vibe-sidebar.js listens here
@@ -271,15 +273,21 @@ class GameScene extends Phaser.Scene {
             }
         });
 
-        // Every 16 beats (2 turns), open the word selection panel on all controllers
-        if (this.wordPanelTimer) this.wordPanelTimer.destroy();
-        this.wordPanelTimer = this.time.addEvent({
-            delay: 16 * BEAT_MS,
-            loop: true,
-            callback: () => socket.emit('word_panel_start'),
+        // First vote fires after 2 turns (16 beats); subsequent votes chain from result
+        if (this.wordPanelTimer) { this.wordPanelTimer.destroy(); this.wordPanelTimer = null; }
+        this.wordPanelTimer = this.time.delayedCall(2 * TURN_BEATS * BEAT_MS, () => {
+            if (this.gameStarted) socket.emit('word_panel_start');
         });
 
         this.startNextTurn();
+    }
+
+    scheduleNextVote() {
+        if (!this.gameStarted) return;
+        if (this.wordPanelTimer) { this.wordPanelTimer.destroy(); this.wordPanelTimer = null; }
+        this.wordPanelTimer = this.time.delayedCall(2 * TURN_BEATS * BEAT_MS, () => {
+            if (this.gameStarted) socket.emit('word_panel_start');
+        });
     }
 
     endGame() {
@@ -290,7 +298,7 @@ class GameScene extends Phaser.Scene {
             this.turnTween = null;
         }
 
-        if (this.wordPanelTimer) this.wordPanelTimer.destroy();
+        if (this.wordPanelTimer) { this.wordPanelTimer.destroy(); this.wordPanelTimer = null; }
 
         if (this.uiTimer) {
             this.uiTimer.destroy();
