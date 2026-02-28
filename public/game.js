@@ -76,6 +76,14 @@ socket.on('word_panel_result', ({ winner, votes }) => {
     if (window.gameScene) window.gameScene.scheduleNextVote();
 });
 
+socket.on('match_summary', ({ summary }) => {
+    const summaryDiv = document.getElementById('match-summary');
+    if (summaryDiv) {
+        // Strip markdown bolding and asterisks
+        summaryDiv.innerText = `"${summary.replace(/[\*\_~]/g, '')}"`;
+    }
+});
+
 // Bridge socket events to window — vibe-sidebar.js listens here
 socket.on('panel_start', (data) => window.dispatchEvent(new CustomEvent('lyria_panel_start', { detail: data })));
 socket.on('vote_update', (data) => window.dispatchEvent(new CustomEvent('lyria_vote_update', { detail: data })));
@@ -330,6 +338,9 @@ class GameScene extends Phaser.Scene {
 
             const sub = overlay.querySelector('.waiting-subtitle');
             if (sub) sub.innerText = "LOSER PAYS THE PRICE";
+
+            const summaryDiv = document.getElementById('match-summary');
+            if (summaryDiv) summaryDiv.innerText = "DJ is generating the match recap...";
 
             const clickHint = overlay.querySelector('.click-start');
             if (clickHint) clickHint.innerText = "CLICK ANYWHERE TO REPLAY";

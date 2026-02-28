@@ -11,9 +11,11 @@
   "license": "ISC",
   "type": "module",
   "dependencies": {
-    "express": "^5.2.1",
-    "socket.io": "^4.8.3",
     "@google/genai": "^1.0.0",
-    "dotenv": "^16.0.0"
+    "@llamaindex/google": "^0.4.0",
+    "dotenv": "^16.0.0",
+    "express": "^5.2.1",
+    "llamaindex": "^0.12.1",
+    "socket.io": "^4.8.3"
   }
 }

@@ -178,6 +178,19 @@
             color: #fff;
             letter-spacing: 2px;
             margin: 0 0 20px 0;
+            text-align: center;
+        }
+
+        #match-summary {
+            font-family: 'Rajdhani', sans-serif;
+            font-size: 1.5rem;
+            color: var(--neon-yellow);
+            max-width: 600px;
+            text-align: center;
+            margin: 0 0 30px 0;
+            line-height: 1.4;
+            text-shadow: 0 0 8px rgba(255, 234, 0, 0.4);
+            font-style: italic;
         }
 
         #qr-container {
@@ -248,7 +261,7 @@
         #vibe-footer {
             text-align: center;
             padding-top: 6px;
-            border-top: 1px solid rgba(0,243,255,0.15);
+            border-top: 1px solid rgba(0, 243, 255, 0.15);
         }
 
         #vibe-current {
@@ -266,7 +279,7 @@
         #vote-countdown {
             font-family: 'Orbitron', sans-serif;
             font-size: 0.7rem;
-            color: rgba(0,243,255,0.5);
+            color: rgba(0, 243, 255, 0.5);
             letter-spacing: 2px;
         }
 
@@ -373,6 +386,7 @@
                 <div id="waiting-overlay">
                     <div class="waiting-title">WAITING FOR DANCERS</div>
                     <div class="waiting-subtitle">SCAN TO JOIN</div>
+                    <div id="match-summary"></div>
                     <div id="qr-container"></div>
                     <div class="click-start">CLICK ANYWHERE HERE TO START</div>
                 </div>

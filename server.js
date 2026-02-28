@@ -5,6 +5,36 @@ import { Server } from 'socket.io';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { GoogleGenAI } from '@google/genai';
+import { Document, SummaryIndex, Settings, BaseLLM, BaseEmbedding } from 'llamaindex';
+
+// ── LlamaIndex Custom Adapters for @google/genai ─────────────────────────────
+class DummyEmbedding extends BaseEmbedding {
+  async getTextEmbedding(text) { return [0.1]; }
+  async getQueryEmbedding(query) { return [0.1]; }
+}
+
+class BeatDropLLM extends BaseLLM {
+  constructor(apiKey) {
+    super();
+    this.client = apiKey ? new GoogleGenAI({ apiKey }) : null;
+  }
+  get metadata() {
+    return { model: "gemini-2.5-flash", temperature: 0.7, topP: 1, contextWindow: 10000, tokenizer: null };
+  }
+  async chat(params) {
+    if (!this.client) return { message: { content: "No API Key found.", role: "assistant" } };
+    const prompt = params.messages.map(m => m.content).join('\n');
+    const response = await this.client.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: prompt,
+    });
+    return { message: { content: response.text, role: "assistant" } };
+  }
+}
+
+// Set up LlamaIndex defaults
+Settings.llm = new BeatDropLLM(process.env.GEMINI_API_KEY);
+Settings.embedModel = new DummyEmbedding();
 
 // --- Instructions ---
 // 1. npm install
@@ -23,6 +53,9 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 // ── Lyria session (module-level so vote handler can update prompts) ───────────
 let lyriaSession = null;
+
+// ── Game event memory for LlamaIndex ──────────────────────────────────────────
+let gameEvents = [];
 
 // ── Word pool — full 158 words from Lyria docs ────────────────────────────────
 const LYRIA_WORD_POOL = [
@@ -146,6 +179,7 @@ async function applyVoteResult(votes) {
         musicGenerationConfig: { bpm: 118, ...preset },
       });
       console.log(`[Lyria] Updated → "${winner}" density:${preset.density} brightness:${preset.brightness}`);
+      gameEvents.push(`The crowd overwhelmingly voted to change the music to the '${winner}' vibe.`);
     } catch (err) {
       console.error('[Lyria] Update failed:', err.message);
     }
@@ -317,6 +351,7 @@ io.on('connection', (socket) => {
     } else if (role === 'controller') {
       console.log(`Player registered: ${socket.id} as ${name || 'Unknown'}`);
       players.set(socket.id, { id: socket.id, name: name || 'Player' });
+      gameEvents.push(`Player '${name || 'Player'}' joined the dancefloor.`);
       if (hostSocket) {
         hostSocket.emit('player_joined', { id: socket.id, name: name || 'Player', totalPlayers: players.size });
       }
@@ -335,6 +370,9 @@ io.on('connection', (socket) => {
   });
 
   socket.on('player_missed', async ({ socketId, playerName }) => {
+    // Log the miss event in our round history
+    gameEvents.push(`Player '${playerName}' missed the sequence.`);
+
     // Generate an insult and send it back to the host, checking if host still exists
     if (hostSocket && socket.id === hostSocket.id) {
       const insult = await generateInsult(playerName);
@@ -351,13 +389,37 @@ io.on('connection', (socket) => {
 
   socket.on('game_started', () => {
     if (hostSocket && socket.id === hostSocket.id) {
+      gameEvents = [`A new 45-second round has started! The players are ready.`];
       io.emit('client_game_started');
     }
   });
 
-  socket.on('game_ended', ({ losers }) => {
+  socket.on('game_ended', async ({ losers }) => {
     if (hostSocket && socket.id === hostSocket.id) {
       io.emit('client_game_ended', { losers });
+
+      if (gameEvents.length > 0) {
+        try {
+          console.log('[LlamaIndex] Generating DJ match summary...');
+          const docText = gameEvents.join('\n');
+          const doc = new Document({ text: docText });
+          const index = await SummaryIndex.fromDocuments([doc]);
+          const queryEngine = index.asQueryEngine();
+
+          const prompt = `You are a snarky, high-energy esports DJ commentator reviewing a chaotic 45-second round of a rhythm game called Beat Drop. 
+          
+Here is the raw timeline of what just happened in the game:
+${docText}
+
+Write a short, punchy, 2-to-3 sentence commentary roasting the players who missed, hyping up the vibes the crowd voted for, and summarizing the match. Make it sound like it's being shouted over a loud stadium microphone! Do not use emojis.`;
+
+          const response = await queryEngine.query({ query: prompt });
+          hostSocket.emit('match_summary', { summary: response.toString() });
+          console.log('[LlamaIndex] Summary emitted to host.');
+        } catch (err) {
+          console.error('[LlamaIndex] Error generating recap:', err);
+        }
+      }
     }
   });
 
@@ -391,7 +453,9 @@ io.on('connection', (socket) => {
   socket.on('vote', ({ word }) => {
     if (!players.has(socket.id) || !word) return;
     panelVotes[word] = (panelVotes[word] || 0) + 1;
-    console.log(`[Vote] ${players.get(socket.id).name}: "${word}"`);
+    const playerName = players.get(socket.id).name;
+    console.log(`[Vote] ${playerName}: "${word}"`);
+    gameEvents.push(`Player '${playerName}' voted to switch the music to '${word}'.`);
     // Live vote count update to host sidebar
     if (hostSocket) hostSocket.emit('vote_update', { votes: { ...panelVotes } });
   });
