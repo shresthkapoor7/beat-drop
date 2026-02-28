@@ -207,7 +207,7 @@ async function generateInsult(playerName) {
 app.get('/test-votes', (_req, res) => {
   if (!hostSocket) return res.json({ error: 'No host connected' });
 
-  const duration = 4 * PANEL_BEAT_MS; // same as real panel
+  const duration = 8 * PANEL_BEAT_MS; // same as real panel
   const fakeUsers = 12; // simulated voters
 
   // Pick random words like real controllers would see (overlapping subsets)
@@ -368,7 +368,7 @@ io.on('connection', (socket) => {
     panelVotes = {};
     if (panelTimer) { clearTimeout(panelTimer); panelTimer = null; }
 
-    const duration = 4 * PANEL_BEAT_MS; // ≈ 2033ms
+    const duration = 8 * PANEL_BEAT_MS; // ≈ 4066ms
 
     // Send a different random subset to each controller, collect all round words
     const roundWords = new Set();
