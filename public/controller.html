@@ -6,42 +6,76 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Beat Drop - Controller</title>
     <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@500;700&display=swap"
+        rel="stylesheet">
+
     <style>
+        :root {
+            --neon-blue: #00f3ff;
+            --neon-pink: #ff007f;
+            --neon-green: #00ff66;
+            --dark-bg: #050508;
+            --panel-bg: rgba(10, 15, 25, 0.7);
+        }
+
         body,
         html {
             margin: 0;
             padding: 0;
             width: 100%;
             height: 100%;
-            background-color: #1f2833;
-            color: #66fcf1;
-            font-family: 'Courier New', Courier, monospace;
+            background-color: var(--dark-bg);
+            color: var(--neon-blue);
+            font-family: 'Rajdhani', sans-serif;
             overflow: hidden;
             touch-action: none;
-            /* Prevent scrolling and zooming */
             user-select: none;
+            background-image:
+                linear-gradient(rgba(0, 243, 255, 0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0, 243, 255, 0.03) 1px, transparent 1px);
+            background-size: 30px 30px;
         }
 
         #header {
             text-align: center;
             padding: 20px;
-            background: #0b0c10;
-            border-bottom: 2px solid #45a29e;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+            background: var(--panel-bg);
+            border-bottom: 2px solid var(--neon-blue);
+            box-shadow: 0 4px 20px rgba(0, 243, 255, 0.2);
+            backdrop-filter: blur(10px);
+            z-index: 10;
         }
 
         h2 {
             margin: 0;
-            font-size: 1.5rem;
+            font-size: 1.8rem;
+            font-family: 'Orbitron', sans-serif;
             text-transform: uppercase;
-            letter-spacing: 2px;
+            letter-spacing: 4px;
+            text-shadow: 0 0 10px var(--neon-blue), 0 0 20px var(--neon-blue);
+            animation: pulse-glow 2s infinite alternate;
+        }
+
+        @keyframes pulse-glow {
+            from {
+                text-shadow: 0 0 10px var(--neon-blue), 0 0 20px var(--neon-blue);
+            }
+
+            to {
+                text-shadow: 0 0 15px var(--neon-blue), 0 0 30px var(--neon-blue), 0 0 40px var(--neon-blue);
+            }
         }
 
         #status {
-            font-size: 0.9rem;
-            color: #c5c6c7;
+            font-size: 1rem;
+            color: rgba(255, 255, 255, 0.7);
             margin-top: 5px;
             display: none;
+            letter-spacing: 1px;
         }
 
         #login-modal {
@@ -55,24 +89,39 @@
         #login-modal input {
             padding: 15px;
             font-size: 1.5rem;
+            font-family: 'Rajdhani', sans-serif;
             text-align: center;
-            border: 2px solid #45a29e;
+            border: 2px solid var(--neon-blue);
             border-radius: 8px;
-            background: #0b0c10;
-            color: #66fcf1;
+            background: rgba(0, 0, 0, 0.6);
+            color: #fff;
             margin-bottom: 20px;
             outline: none;
+            box-shadow: inset 0 0 10px rgba(0, 243, 255, 0.2);
+        }
+
+        #login-modal input:focus {
+            box-shadow: inset 0 0 15px rgba(0, 243, 255, 0.4), 0 0 10px rgba(0, 243, 255, 0.4);
         }
 
         #login-modal button {
             padding: 15px 40px;
             font-size: 1.5rem;
-            background: #45a29e;
-            color: #0b0c10;
-            border: none;
+            font-family: 'Orbitron', sans-serif;
+            background: rgba(0, 243, 255, 0.1);
+            color: var(--neon-blue);
+            border: 2px solid var(--neon-blue);
             border-radius: 8px;
             cursor: pointer;
             font-weight: bold;
+            text-shadow: 0 0 5px var(--neon-blue);
+            box-shadow: 0 0 15px rgba(0, 243, 255, 0.2);
+            transition: all 0.2s;
+        }
+
+        #login-modal button:active {
+            background: rgba(0, 243, 255, 0.3);
+            transform: scale(0.95);
         }
 
         #controller-ui {
@@ -83,7 +132,7 @@
             display: grid;
             grid-template-columns: repeat(3, 1fr);
             grid-template-rows: repeat(3, 1fr);
-            gap: 15px;
+            gap: 20px;
             width: 90%;
             max-width: 400px;
             aspect-ratio: 1 / 1;
@@ -91,23 +140,26 @@
         }
 
         .btn {
-            background: #45a29e;
-            border: 2px solid #66fcf1;
-            border-radius: 15px;
+            background: rgba(10, 15, 25, 0.9);
+            border: 2px solid var(--neon-blue);
+            border-radius: 12px;
             display: flex;
             justify-content: center;
             align-items: center;
-            font-size: 2.5rem;
-            color: #0b0c10;
-            box-shadow: 0 8px 0 #1f2833, 0 15px 20px rgba(0, 0, 0, 0.4);
+            font-size: 3rem;
+            color: var(--neon-blue);
+            text-shadow: 0 0 10px var(--neon-blue);
+            box-shadow: 0 8px 0 rgba(0, 150, 200, 0.2), 0 15px 20px rgba(0, 0, 0, 0.6), inset 0 0 15px rgba(0, 243, 255, 0.1);
             transition: all 0.1s;
             cursor: pointer;
         }
 
         .btn:active {
             transform: translateY(8px);
-            box-shadow: 0 0px 0 #1f2833, 0 5px 10px rgba(0, 0, 0, 0.4);
-            background: #66fcf1;
+            box-shadow: 0 0px 0 #1f2833, 0 5px 10px rgba(0, 0, 0, 0.6), inset 0 0 25px rgba(0, 243, 255, 0.4);
+            border-color: #fff;
+            color: #fff;
+            text-shadow: 0 0 15px #fff, 0 0 30px #fff;
         }
 
         #btn-up {
@@ -186,6 +238,31 @@
             color: #c5c6c7;
             margin-top: 4px;
         }
+
+        /* ── Penalty Screen ───────────────────────────────────────── */
+        #penalty-screen {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: #000;
+            z-index: 200;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: #ff0044;
+            font-family: 'Orbitron', monospace;
+            text-align: center;
+        }
+
+        #penalty-screen iframe {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            opacity: 0;
+            pointer-events: none;
+            left: -9999px;
+            top: -9999px;
+        }
     </style>
 </head>
 
@@ -208,12 +285,19 @@
         <div id="panel-timer"></div>
     </div>
 
+    <!-- Penalty screen — shown to losers at end of game -->
+    <div id="penalty-screen">
+        <h2 style="color:red; animation:none">YOU LOSE!</h2>
+        <div style="color:white; margin-top:10px;">Play this on max volume</div>
+        <div id="yt-container"></div>
+    </div>
+
     <div id="controller-ui">
         <div id="dpad">
-            <div class="btn" id="btn-up" data-dir="UP">⬆️</div>
-            <div class="btn" id="btn-left" data-dir="LEFT">⬅️</div>
-            <div class="btn" id="btn-right" data-dir="RIGHT">➡️</div>
-            <div class="btn" id="btn-down" data-dir="DOWN">⬇️</div>
+            <div class="btn" id="btn-up" data-dir="UP">W</div>
+            <div class="btn" id="btn-left" data-dir="LEFT">A</div>
+            <div class="btn" id="btn-right" data-dir="RIGHT">D</div>
+            <div class="btn" id="btn-down" data-dir="DOWN">S</div>
         </div>
     </div>
 
@@ -246,7 +330,7 @@
 
             socket.on('connect', () => {
                 statusDiv.innerText = `Connected as ${name}`;
-                statusDiv.style.color = "#66fcf1";
+                statusDiv.style.color = "var(--neon-green)";
                 // Register with server safely after connection is established
                 socket.emit('register', { role: 'controller', roomId: roomId, name: name });
             });
@@ -288,12 +372,12 @@
         });
 
         // ── Word Panel ────────────────────────────────────────────────────────
-        const wordPanel    = document.getElementById('word-panel');
-        const wordButtons  = document.getElementById('word-buttons');
-        const panelTimer   = document.getElementById('panel-timer');
-        let   closeTimeout = null;
-        let   countInterval = null;
-        let   hasVoted     = false;
+        const wordPanel = document.getElementById('word-panel');
+        const wordButtons = document.getElementById('word-buttons');
+        const panelTimer = document.getElementById('panel-timer');
+        let closeTimeout = null;
+        let countInterval = null;
+        let hasVoted = false;
 
         function openWordPanel(words, duration) {
             hasVoted = false;
@@ -301,7 +385,7 @@
 
             words.forEach(word => {
                 const btn = document.createElement('button');
-                btn.className   = 'word-btn';
+                btn.className = 'word-btn';
                 btn.textContent = word;
                 btn.addEventListener('click', () => {
                     if (hasVoted || !socket.connected) return;
@@ -343,6 +427,35 @@
 
         socket.on('show_word_panel', ({ words, duration }) => openWordPanel(words, duration));
         socket.on('word_panel_result', closeWordPanel);
+
+        // ── Endgame / Penalty Handling ─────────────────────────────────────────
+        socket.on('client_game_started', () => {
+            document.getElementById('penalty-screen').style.display = 'none';
+            document.getElementById('yt-container').innerHTML = '';
+            // Reset status text just in case
+            if (statusDiv.innerHTML.includes("GAME OVER")) {
+                statusDiv.innerText = `Connected as ${nameInput.value}`;
+                statusDiv.style.color = "var(--neon-green)";
+            }
+        });
+
+        socket.on('client_game_ended', ({ losers }) => {
+            const isLoser = losers.includes(socket.id);
+            if (isLoser) {
+                // Show youtube penalty
+                document.getElementById('penalty-screen').style.display = 'flex';
+                document.getElementById('yt-container').innerHTML = `
+                    <iframe width="100%" height="100%" 
+                        src="https://www.youtube.com/embed/207fL1pIAis?autoplay=1&controls=0&modestbranding=1" 
+                        allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture" 
+                        allowfullscreen>
+                    </iframe>`;
+                if (navigator.vibrate) navigator.vibrate([200, 100, 200, 100, 500]);
+            } else {
+                statusDiv.innerText = "GAME OVER - WAITING FOR HOST";
+                statusDiv.style.color = "var(--neon-pink)";
+            }
+        });
     </script>
 </body>
 

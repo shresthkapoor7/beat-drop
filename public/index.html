@@ -262,63 +262,6 @@
             font-family: 'Orbitron', monospace;
             font-size: 0.9rem;
         }
-
-        /* Bottom Hype Meter */
-        #hype-meter-container {
-            width: 100%;
-            height: 25px;
-            background: #000;
-            border-top: 1px solid var(--neon-pink);
-            box-shadow: 0 -5px 15px rgba(255, 0, 127, 0.2);
-            position: relative;
-            overflow: hidden;
-            display: flex;
-            align-items: center;
-        }
-
-        #hype-meter-fill {
-            height: 100%;
-            width: 50%;
-            /* Default partial fill */
-            background: linear-gradient(90deg, #ff007f 0%, #ff4d4d 100%);
-            box-shadow: 0 0 20px #ff007f, 0 0 40px #ff007f;
-            transition: width 0.3s ease-out;
-            position: relative;
-        }
-
-        #hype-meter-fill::after {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.4), transparent);
-            animation: sheer 2s infinite linear;
-        }
-
-        @keyframes sheer {
-            0% {
-                transform: translateX(-100%);
-            }
-
-            100% {
-                transform: translateX(100%);
-            }
-        }
-
-        .hype-label {
-            position: absolute;
-            width: 100%;
-            text-align: center;
-            font-family: 'Orbitron', sans-serif;
-            font-size: 0.8rem;
-            letter-spacing: 5px;
-            color: rgba(255, 255, 255, 0.8);
-            font-weight: bold;
-            text-shadow: 0 0 5px #000;
-            z-index: 2;
-        }
     </style>
 </head>
 
@@ -335,9 +278,13 @@
                 <div class="stat-value" id="player-count">0</div>
                 <div class="stat-label">Players</div>
             </div>
-            <div class="stat-box">
+            <!-- <div class="stat-box">
                 <div class="stat-value" id="bpm-display">118</div>
                 <div class="stat-label">BPM</div>
+            </div> -->
+            <div class="stat-box">
+                <div class="stat-value" id="timer-display">45</div>
+                <div class="stat-label">TIMER</div>
             </div>
         </div>
     </div>
@@ -362,10 +309,6 @@
         </div>
     </div>
 
-    <div id="hype-meter-container">
-        <div id="hype-meter-fill"></div>
-        <div class="hype-label">H Y P E</div>
-    </div>
 
     <!-- Hidden video element to play the mp4 as background music -->
     <video id="bg-music" src="/music/music.mp4" loop style="display:none"></video>

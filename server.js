@@ -13,11 +13,11 @@ import { GoogleGenAI } from '@google/genai';
 // -------------------
 
 const __filename = fileURLToPath(import.meta.url);
-const __dirname  = path.dirname(__filename);
+const __dirname = path.dirname(__filename);
 
-const app        = express();
+const app = express();
 const httpServer = createServer(app);
-const io         = new Server(httpServer);
+const io = new Server(httpServer);
 
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -44,52 +44,52 @@ const WORDS_PER_USER = 5;
 
 // Per-word density/brightness/guidance presets for obvious music shifts
 const WORD_PRESETS = {
-  'Dubstep':             { density: 0.9,  brightness: 0.9,  guidance: 5.0 },
-  'Drum & Bass':         { density: 1.0,  brightness: 0.8,  guidance: 5.0 },
-  'Hyperpop':            { density: 0.95, brightness: 1.0,  guidance: 4.5 },
-  'Psytrance':           { density: 0.9,  brightness: 0.85, guidance: 4.5 },
-  'Huge Drop':           { density: 1.0,  brightness: 1.0,  guidance: 5.0 },
-  'Glitchy Effects':     { density: 0.9,  brightness: 0.8,  guidance: 4.5 },
-  'Weird Noises':        { density: 0.8,  brightness: 0.7,  guidance: 4.5 },
-  'Chiptune':            { density: 0.85, brightness: 0.95, guidance: 4.0 },
-  'Fat Beats':           { density: 0.85, brightness: 0.75, guidance: 4.0 },
-  '808 Hip Hop Beat':    { density: 0.8,  brightness: 0.7,  guidance: 4.0 },
-  'TR-909 Drum Machine': { density: 0.8,  brightness: 0.75, guidance: 4.0 },
-  'Deep House':          { density: 0.75, brightness: 0.7,  guidance: 4.0 },
-  'Disco Funk':          { density: 0.8,  brightness: 0.75, guidance: 3.5 },
-  'Afrobeat':            { density: 0.8,  brightness: 0.75, guidance: 3.5 },
-  'Electro Swing':       { density: 0.7,  brightness: 0.7,  guidance: 3.5 },
-  'Upbeat':              { density: 0.8,  brightness: 0.8,  guidance: 3.5 },
-  'Neo-Soul':            { density: 0.6,  brightness: 0.6,  guidance: 3.0 },
-  'Jazz Fusion':         { density: 0.65, brightness: 0.6,  guidance: 3.0 },
-  'Orchestral Score':    { density: 0.7,  brightness: 0.7,  guidance: 3.5 },
-  'Minimal Techno':      { density: 0.5,  brightness: 0.6,  guidance: 4.0 },
-  'Reggae':              { density: 0.5,  brightness: 0.6,  guidance: 3.0 },
-  'Bluegrass':           { density: 0.45, brightness: 0.65, guidance: 3.5 },
-  'Celtic Folk':         { density: 0.4,  brightness: 0.65, guidance: 3.5 },
-  'Bossa Nova':          { density: 0.35, brightness: 0.55, guidance: 3.0 },
-  'Trip Hop':            { density: 0.55, brightness: 0.45, guidance: 3.0 },
-  'Lo-Fi Hip Hop':       { density: 0.4,  brightness: 0.35, guidance: 2.5 },
-  'Chill':               { density: 0.3,  brightness: 0.45, guidance: 2.5 },
-  'Dreamy':              { density: 0.25, brightness: 0.4,  guidance: 2.0 },
-  'Ambient':             { density: 0.15, brightness: 0.3,  guidance: 2.0 },
-  'Ominous Drone':       { density: 0.2,  brightness: 0.15, guidance: 3.0 },
-  'Ethereal Ambience':   { density: 0.2,  brightness: 0.35, guidance: 2.0 },
-  'Hang Drum':           { density: 0.35, brightness: 0.55, guidance: 3.0 },
-  'Bagpipes':            { density: 0.5,  brightness: 0.65, guidance: 3.5 },
-  'Cello':               { density: 0.4,  brightness: 0.5,  guidance: 3.0 },
-  'Harmonica':           { density: 0.4,  brightness: 0.6,  guidance: 3.0 },
-  'Sitar':               { density: 0.5,  brightness: 0.6,  guidance: 3.5 },
-  'Tabla':               { density: 0.6,  brightness: 0.6,  guidance: 3.5 },
-  'Moog Oscillations':   { density: 0.6,  brightness: 0.65, guidance: 3.5 },
-  'Spacey Synths':       { density: 0.5,  brightness: 0.6,  guidance: 3.0 },
-  'Rhodes Piano':        { density: 0.55, brightness: 0.6,  guidance: 3.0 },
-  'Accordion':           { density: 0.45, brightness: 0.6,  guidance: 3.0 },
+  'Dubstep': { density: 0.9, brightness: 0.9, guidance: 5.0 },
+  'Drum & Bass': { density: 1.0, brightness: 0.8, guidance: 5.0 },
+  'Hyperpop': { density: 0.95, brightness: 1.0, guidance: 4.5 },
+  'Psytrance': { density: 0.9, brightness: 0.85, guidance: 4.5 },
+  'Huge Drop': { density: 1.0, brightness: 1.0, guidance: 5.0 },
+  'Glitchy Effects': { density: 0.9, brightness: 0.8, guidance: 4.5 },
+  'Weird Noises': { density: 0.8, brightness: 0.7, guidance: 4.5 },
+  'Chiptune': { density: 0.85, brightness: 0.95, guidance: 4.0 },
+  'Fat Beats': { density: 0.85, brightness: 0.75, guidance: 4.0 },
+  '808 Hip Hop Beat': { density: 0.8, brightness: 0.7, guidance: 4.0 },
+  'TR-909 Drum Machine': { density: 0.8, brightness: 0.75, guidance: 4.0 },
+  'Deep House': { density: 0.75, brightness: 0.7, guidance: 4.0 },
+  'Disco Funk': { density: 0.8, brightness: 0.75, guidance: 3.5 },
+  'Afrobeat': { density: 0.8, brightness: 0.75, guidance: 3.5 },
+  'Electro Swing': { density: 0.7, brightness: 0.7, guidance: 3.5 },
+  'Upbeat': { density: 0.8, brightness: 0.8, guidance: 3.5 },
+  'Neo-Soul': { density: 0.6, brightness: 0.6, guidance: 3.0 },
+  'Jazz Fusion': { density: 0.65, brightness: 0.6, guidance: 3.0 },
+  'Orchestral Score': { density: 0.7, brightness: 0.7, guidance: 3.5 },
+  'Minimal Techno': { density: 0.5, brightness: 0.6, guidance: 4.0 },
+  'Reggae': { density: 0.5, brightness: 0.6, guidance: 3.0 },
+  'Bluegrass': { density: 0.45, brightness: 0.65, guidance: 3.5 },
+  'Celtic Folk': { density: 0.4, brightness: 0.65, guidance: 3.5 },
+  'Bossa Nova': { density: 0.35, brightness: 0.55, guidance: 3.0 },
+  'Trip Hop': { density: 0.55, brightness: 0.45, guidance: 3.0 },
+  'Lo-Fi Hip Hop': { density: 0.4, brightness: 0.35, guidance: 2.5 },
+  'Chill': { density: 0.3, brightness: 0.45, guidance: 2.5 },
+  'Dreamy': { density: 0.25, brightness: 0.4, guidance: 2.0 },
+  'Ambient': { density: 0.15, brightness: 0.3, guidance: 2.0 },
+  'Ominous Drone': { density: 0.2, brightness: 0.15, guidance: 3.0 },
+  'Ethereal Ambience': { density: 0.2, brightness: 0.35, guidance: 2.0 },
+  'Hang Drum': { density: 0.35, brightness: 0.55, guidance: 3.0 },
+  'Bagpipes': { density: 0.5, brightness: 0.65, guidance: 3.5 },
+  'Cello': { density: 0.4, brightness: 0.5, guidance: 3.0 },
+  'Harmonica': { density: 0.4, brightness: 0.6, guidance: 3.0 },
+  'Sitar': { density: 0.5, brightness: 0.6, guidance: 3.5 },
+  'Tabla': { density: 0.6, brightness: 0.6, guidance: 3.5 },
+  'Moog Oscillations': { density: 0.6, brightness: 0.65, guidance: 3.5 },
+  'Spacey Synths': { density: 0.5, brightness: 0.6, guidance: 3.0 },
+  'Rhodes Piano': { density: 0.55, brightness: 0.6, guidance: 3.0 },
+  'Accordion': { density: 0.45, brightness: 0.6, guidance: 3.0 },
 };
 
 const DEFAULT_PRESET = { density: 0.6, brightness: 0.6, guidance: 3.5 };
 // Low-weight anchor so music always keeps a pulse, even on abstract votes
-const ANCHOR_PROMPT  = { text: 'danceable', weight: 0.3 };
+const ANCHOR_PROMPT = { text: 'danceable', weight: 0.3 };
 
 function pickRandom(arr, n) {
   return [...arr].sort(() => Math.random() - 0.5).slice(0, n);
@@ -97,7 +97,7 @@ function pickRandom(arr, n) {
 
 // ── Word-panel vote state ─────────────────────────────────────────────────────
 let panelVotes = {};
-let panelTimer  = null;
+let panelTimer = null;
 
 const PANEL_BEAT_MS = Math.round(60000 / 118); // ≈ 508ms per beat
 
@@ -110,10 +110,38 @@ function generateRoomId() {
 }
 
 const currentRoomId = generateRoomId();
-let   hostSocket    = null;
-const players       = new Map();
+let hostSocket = null;
+const players = new Map();
 
 app.get('/room', (_req, res) => res.json({ roomId: currentRoomId }));
+
+// ── Text Gen (Insults) ────────────────────────────────────────────────────────
+const textClient = process.env.GEMINI_API_KEY ? new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY }) : null;
+
+async function generateInsult(playerName) {
+  if (!textClient) return "You missed the beat!";
+  try {
+    const response = await textClient.models.generateContent({
+      model: 'gemini-3-flash-preview', // User provided API name for 3.0 flash preview
+      contents: `Write a very short, funny, 1-sentence insult for a rhythm game player named ${playerName} who just missed a beat. Keep it clean but roasted. MAXIMUM 10 words.`,
+    });
+    return response.text;
+  } catch (err) {
+    if (err.message && err.message.includes("model not found")) {
+      try {
+        const fallback = await textClient.models.generateContent({
+          model: 'gemini-1.5-flash',
+          contents: `Write a very short, funny, 1-sentence insult for a rhythm game player named ${playerName} who just missed a beat. Keep it clean but roasted. MAXIMUM 10 words.`,
+        });
+        return fallback.text;
+      } catch (e) {
+        return "You completely missed the beat!";
+      }
+    }
+    console.error('[Gemini Text] Error generating insult:', err.message);
+    return "You missed the beat!";
+  }
+}
 
 // ── Lyria connection ──────────────────────────────────────────────────────────
 async function connectLyria() {
@@ -125,7 +153,7 @@ async function connectLyria() {
   try {
     console.log('[Lyria] Connecting to Gemini...');
     const client = new GoogleGenAI({
-      apiKey:      process.env.GEMINI_API_KEY,
+      apiKey: process.env.GEMINI_API_KEY,
       httpOptions: { apiVersion: 'v1alpha' },
     });
 
@@ -198,10 +226,30 @@ io.on('connection', (socket) => {
   socket.on('input', (data) => {
     if (players.has(socket.id) && hostSocket) {
       hostSocket.emit('input', {
-        playerId:  socket.id,
+        playerId: socket.id,
         direction: data.direction,
         timestamp: data.timestamp || Date.now(),
       });
+    }
+  });
+
+  socket.on('player_missed', async ({ socketId, playerName }) => {
+    // Generate an insult and send it back to the host, checking if host still exists
+    if (hostSocket && socket.id === hostSocket.id) {
+      const insult = await generateInsult(playerName);
+      if (hostSocket) hostSocket.emit('player_insult', { socketId, insult });
+    }
+  });
+
+  socket.on('game_started', () => {
+    if (hostSocket && socket.id === hostSocket.id) {
+      io.emit('client_game_started');
+    }
+  });
+
+  socket.on('game_ended', ({ losers }) => {
+    if (hostSocket && socket.id === hostSocket.id) {
+      io.emit('client_game_ended', { losers });
     }
   });
 
@@ -225,7 +273,7 @@ io.on('connection', (socket) => {
     panelTimer = setTimeout(async () => {
       // Sort all voted words by count descending, take top 10
       const sorted = Object.entries(panelVotes).sort(([, a], [, b]) => b - a);
-      const top10  = sorted.slice(0, 10);
+      const top10 = sorted.slice(0, 10);
 
       const result = { top: top10.map(([w]) => w), votes: { ...panelVotes } };
       console.log('[Panel] Result:', result);
@@ -243,7 +291,7 @@ io.on('connection', (socket) => {
           // Rank 6-10: flat low weight 0.4 — still influence but gently
           const weightedPrompts = [
             ...top10.slice(0, 5).map(([word, count]) => ({
-              text:   word,
+              text: word,
               weight: Math.max(1.0, (count / maxCount) * 3.0),
             })),
             ...top10.slice(5).map(([word]) => ({ text: word, weight: 0.4 })),
@@ -265,7 +313,7 @@ io.on('connection', (socket) => {
       }
 
       panelVotes = {};
-      panelTimer  = null;
+      panelTimer = null;
     }, duration);
   });
 

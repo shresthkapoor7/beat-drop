@@ -9,8 +9,8 @@ const qrContainer = document.getElementById('qr-container');
 
 let players = {}; // Map socket.id -> Phaser Sprite
 
-const BPM        = 118;
-const BEAT_MS    = 60000 / BPM;  // ≈ 508ms per beat
+const BPM = 118;
+const BEAT_MS = 60000 / BPM;  // ≈ 508ms per beat
 const TURN_BEATS = 8;            // 2 bars of 4/4 — aligns with Lyria's 118 BPM output
 
 // 1. Fetch Room ID and Setup QR Code
@@ -65,18 +65,22 @@ socket.on('input', (data) => {
     if (gameScene) gameScene.handleInput(data);
 });
 
+socket.on('player_insult', ({ socketId, insult }) => {
+    if (window.gameScene) window.gameScene.showInsult(socketId, insult);
+});
+
 socket.on('word_panel_result', ({ winner }) => {
     if (winner && window.gameScene) window.gameScene.showWordResult(winner);
 });
 
 // ── Web Audio — stream Lyria PCM from server ──────────────────────────────────
 // Raw PCM: 16-bit signed, 48kHz, stereo interleaved (L R L R ...)
-let audioCtx     = null;
+let audioCtx = null;
 let nextPlayTime = 0;
 
 function ensureAudio() {
     if (!audioCtx) {
-        audioCtx     = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 48000 });
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 48000 });
         nextPlayTime = audioCtx.currentTime + 0.1;
     }
     if (audioCtx.state === 'suspended') audioCtx.resume();
@@ -86,32 +90,32 @@ socket.on('audio_chunk', (b64) => {
     ensureAudio();
     try {
         const binary = atob(b64);
-        const bytes  = new Uint8Array(binary.length);
+        const bytes = new Uint8Array(binary.length);
         for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
 
-        const int16      = new Int16Array(bytes.buffer);
+        const int16 = new Int16Array(bytes.buffer);
         const frameCount = Math.floor(int16.length / 2);
-        const buf        = audioCtx.createBuffer(2, frameCount, 48000);
-        const L          = buf.getChannelData(0);
-        const R          = buf.getChannelData(1);
+        const buf = audioCtx.createBuffer(2, frameCount, 48000);
+        const L = buf.getChannelData(0);
+        const R = buf.getChannelData(1);
         for (let i = 0; i < frameCount; i++) {
-            L[i] = int16[i * 2]     / 32768;
+            L[i] = int16[i * 2] / 32768;
             R[i] = int16[i * 2 + 1] / 32768;
         }
 
         const startAt = Math.max(nextPlayTime, audioCtx.currentTime + 0.02);
-        const src     = audioCtx.createBufferSource();
-        src.buffer    = buf;
+        const src = audioCtx.createBufferSource();
+        src.buffer = buf;
         src.connect(audioCtx.destination);
         src.start(startAt);
-        nextPlayTime  = startAt + buf.duration;
+        nextPlayTime = startAt + buf.duration;
     } catch (e) {
         console.warn('[Audio] chunk error:', e.message);
     }
 });
 
 // Unlock AudioContext on first interaction
-document.addEventListener('click',   ensureAudio, { once: true });
+document.addEventListener('click', ensureAudio, { once: true });
 document.addEventListener('keydown', ensureAudio, { once: true });
 
 
@@ -171,11 +175,6 @@ class GameScene extends Phaser.Scene {
         this.beatBarBg = this.add.rectangle(this.beatBarX, this.beatBarY, this.beatBarWidth, 20, 0x1f2833).setOrigin(0, 0.5);
         this.beatBarBg.setStrokeStyle(2, 0x45a29e);
 
-        // Hit Zone Indicator
-        const hzX = this.beatBarX + (this.beatBarWidth * this.hitZoneStart);
-        const hzW = this.beatBarWidth * (this.hitZoneEnd - this.hitZoneStart);
-        this.hitZoneRect = this.add.rectangle(hzX, this.beatBarY, hzW, 40, 0x66fcf1).setOrigin(0, 0.5).setAlpha(0.6);
-
         // The Sliding Playhead
         this.playhead = this.add.circle(this.beatBarX, this.beatBarY, 15, 0xff0044);
 
@@ -228,17 +227,102 @@ class GameScene extends Phaser.Scene {
             setTimeout(() => overlay.style.display = 'none', 500);
         }
 
+        socket.emit('game_started'); // Reset controllers UI
+
+        // Reset all player scores for a fresh game
+        Object.values(players).forEach(p => {
+            p.score = 0;
+            p.combo = 0;
+            if (p.ui && p.ui.scoreText) p.ui.scoreText.setText("0");
+        });
+        this.updateScoreboard();
+
         // Audio is streamed from Lyria via Web Audio — no video element needed
         ensureAudio();
 
+        // 45 second game timer
+        if (this.gameTimer) this.gameTimer.destroy();
+        this.gameTimer = this.time.addEvent({
+            delay: 45000,
+            callback: this.endGame,
+            callbackScope: this
+        });
+
+        // UI countdown timer tick
+        this.secondsRemaining = 45;
+        const timerDisplay = document.getElementById('timer-display');
+        if (timerDisplay) timerDisplay.innerText = this.secondsRemaining;
+
+        if (this.uiTimer) this.uiTimer.destroy();
+        this.uiTimer = this.time.addEvent({
+            delay: 1000,
+            loop: true,
+            callback: () => {
+                this.secondsRemaining--;
+                if (this.secondsRemaining >= 0 && timerDisplay) {
+                    timerDisplay.innerText = this.secondsRemaining;
+                }
+            }
+        });
+
         // Every 16 beats (2 turns), open the word selection panel on all controllers
-        this.time.addEvent({
+        if (this.wordPanelTimer) this.wordPanelTimer.destroy();
+        this.wordPanelTimer = this.time.addEvent({
             delay: 16 * BEAT_MS,
             loop: true,
             callback: () => socket.emit('word_panel_start'),
         });
 
         this.startNextTurn();
+    }
+
+    endGame() {
+        this.gameStarted = false;
+
+        if (this.turnTween) {
+            this.turnTween.stop();
+            this.turnTween = null;
+        }
+
+        if (this.wordPanelTimer) this.wordPanelTimer.destroy();
+
+        if (this.uiTimer) {
+            this.uiTimer.destroy();
+            this.uiTimer = null;
+        }
+
+        const timerDisplay = document.getElementById('timer-display');
+        if (timerDisplay) timerDisplay.innerText = '0';
+
+        // Find losers (lowest score)
+        let lowestScore = Infinity;
+        let losers = [];
+        Object.values(players).forEach(p => {
+            if (p.score < lowestScore) {
+                lowestScore = p.score;
+                losers = [p.id];
+            } else if (p.score === lowestScore) {
+                losers.push(p.id);
+            }
+        });
+
+        socket.emit('game_ended', { losers });
+
+        // Show Game Over UI
+        const overlay = document.getElementById('waiting-overlay');
+        if (overlay) {
+            const title = overlay.querySelector('.waiting-title');
+            if (title) title.innerText = "GAME OVER";
+
+            const sub = overlay.querySelector('.waiting-subtitle');
+            if (sub) sub.innerText = "LOSER PAYS THE PRICE";
+
+            const clickHint = overlay.querySelector('.click-start');
+            if (clickHint) clickHint.innerText = "CLICK ANYWHERE TO REPLAY";
+
+            overlay.style.display = 'flex';
+            overlay.style.opacity = '1';
+        }
     }
 
     startNextTurn() {
@@ -291,11 +375,13 @@ class GameScene extends Phaser.Scene {
     }
 
     evaluateMisses() {
+        if (!this.gameStarted) return;
         // Anyone who didn't finish FAILS the turn
         Object.values(players).forEach(player => {
             if (!player.finishedTurn && !player.failedTurn) {
                 player.failedTurn = true;
                 this.showFeedback(player, 'MISS!', 0xff0000);
+                // socket.emit('player_missed', { socketId: player.id, playerName: player.name });
             }
         });
     }
@@ -518,6 +604,7 @@ class GameScene extends Phaser.Scene {
             player.failedTurn = true;
             player.ui.sprite.setTint(0x444444);
             this.showFeedback(player, 'WRONG MOVE!', 0xff0000);
+            // socket.emit('player_missed', { socketId: player.id, playerName: player.name });
         }
     }
 
@@ -530,6 +617,31 @@ class GameScene extends Phaser.Scene {
         this.tweens.add({
             targets: banner, alpha: 0, duration: 1000, delay: 2000,
             onComplete: () => banner.destroy(),
+        });
+    }
+
+    showInsult(socketId, insult) {
+        const player = players[socketId];
+        if (!player) return;
+
+        const px = player.ui.sprite.x;
+        const py = player.ui.sprite.y - 100;
+
+        const textObj = this.add.text(px, py, insult, {
+            fontSize: '20px', color: '#ff007f', fontStyle: 'bold',
+            backgroundColor: '#000000dd', padding: { x: 12, y: 12 },
+            align: 'center', wordWrap: { width: 300 }
+        }).setOrigin(0.5, 1).setDepth(50); // anchored bottom center
+
+        textObj.setStroke('#ff007f', 1.5);
+
+        this.tweens.add({
+            targets: textObj,
+            y: py - 25,
+            alpha: { from: 1, to: 0 },
+            duration: 6000,
+            ease: 'Power2',
+            onComplete: () => textObj.destroy()
         });
     }
 
