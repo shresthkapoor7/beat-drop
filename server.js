@@ -24,11 +24,76 @@ app.use(express.static(path.join(__dirname, 'public')));
 // ── Lyria session (module-level so vote handler can update prompts) ───────────
 let lyriaSession = null;
 
-const BASE_PROMPTS = [
-  { text: 'disco funk',   weight: 1.5 },
-  { text: 'danceable',    weight: 1.0 },
-  { text: 'Rhodes Piano', weight: 0.8 },
+// ── Word pool — shown randomly per controller ─────────────────────────────────
+const LYRIA_WORD_POOL = [
+  // Genre
+  'Dubstep', 'Bossa Nova', 'Drum & Bass', 'Celtic Folk', 'Hyperpop',
+  'Disco Funk', 'Lo-Fi Hip Hop', 'Minimal Techno', 'Jazz Fusion', 'Reggae',
+  'Psytrance', 'Neo-Soul', 'Afrobeat', 'Chiptune', 'Trip Hop',
+  'Electro Swing', 'Deep House', 'Bluegrass', 'Orchestral Score', 'Ambient',
+  // Instrument
+  'Bagpipes', 'Moog Oscillations', 'Rhodes Piano', 'Tabla', 'Sitar',
+  '808 Hip Hop Beat', 'Harmonica', 'TR-909 Drum Machine', 'Spacey Synths',
+  'Hang Drum', 'Accordion', 'Cello',
+  // Mood
+  'Dreamy', 'Upbeat', 'Ominous Drone', 'Huge Drop', 'Chill',
+  'Glitchy Effects', 'Ethereal Ambience', 'Fat Beats', 'Weird Noises',
 ];
+
+const WORDS_PER_USER = 5;
+
+// Per-word density/brightness/guidance presets for obvious music shifts
+const WORD_PRESETS = {
+  'Dubstep':             { density: 0.9,  brightness: 0.9,  guidance: 5.0 },
+  'Drum & Bass':         { density: 1.0,  brightness: 0.8,  guidance: 5.0 },
+  'Hyperpop':            { density: 0.95, brightness: 1.0,  guidance: 4.5 },
+  'Psytrance':           { density: 0.9,  brightness: 0.85, guidance: 4.5 },
+  'Huge Drop':           { density: 1.0,  brightness: 1.0,  guidance: 5.0 },
+  'Glitchy Effects':     { density: 0.9,  brightness: 0.8,  guidance: 4.5 },
+  'Weird Noises':        { density: 0.8,  brightness: 0.7,  guidance: 4.5 },
+  'Chiptune':            { density: 0.85, brightness: 0.95, guidance: 4.0 },
+  'Fat Beats':           { density: 0.85, brightness: 0.75, guidance: 4.0 },
+  '808 Hip Hop Beat':    { density: 0.8,  brightness: 0.7,  guidance: 4.0 },
+  'TR-909 Drum Machine': { density: 0.8,  brightness: 0.75, guidance: 4.0 },
+  'Deep House':          { density: 0.75, brightness: 0.7,  guidance: 4.0 },
+  'Disco Funk':          { density: 0.8,  brightness: 0.75, guidance: 3.5 },
+  'Afrobeat':            { density: 0.8,  brightness: 0.75, guidance: 3.5 },
+  'Electro Swing':       { density: 0.7,  brightness: 0.7,  guidance: 3.5 },
+  'Upbeat':              { density: 0.8,  brightness: 0.8,  guidance: 3.5 },
+  'Neo-Soul':            { density: 0.6,  brightness: 0.6,  guidance: 3.0 },
+  'Jazz Fusion':         { density: 0.65, brightness: 0.6,  guidance: 3.0 },
+  'Orchestral Score':    { density: 0.7,  brightness: 0.7,  guidance: 3.5 },
+  'Minimal Techno':      { density: 0.5,  brightness: 0.6,  guidance: 4.0 },
+  'Reggae':              { density: 0.5,  brightness: 0.6,  guidance: 3.0 },
+  'Bluegrass':           { density: 0.45, brightness: 0.65, guidance: 3.5 },
+  'Celtic Folk':         { density: 0.4,  brightness: 0.65, guidance: 3.5 },
+  'Bossa Nova':          { density: 0.35, brightness: 0.55, guidance: 3.0 },
+  'Trip Hop':            { density: 0.55, brightness: 0.45, guidance: 3.0 },
+  'Lo-Fi Hip Hop':       { density: 0.4,  brightness: 0.35, guidance: 2.5 },
+  'Chill':               { density: 0.3,  brightness: 0.45, guidance: 2.5 },
+  'Dreamy':              { density: 0.25, brightness: 0.4,  guidance: 2.0 },
+  'Ambient':             { density: 0.15, brightness: 0.3,  guidance: 2.0 },
+  'Ominous Drone':       { density: 0.2,  brightness: 0.15, guidance: 3.0 },
+  'Ethereal Ambience':   { density: 0.2,  brightness: 0.35, guidance: 2.0 },
+  'Hang Drum':           { density: 0.35, brightness: 0.55, guidance: 3.0 },
+  'Bagpipes':            { density: 0.5,  brightness: 0.65, guidance: 3.5 },
+  'Cello':               { density: 0.4,  brightness: 0.5,  guidance: 3.0 },
+  'Harmonica':           { density: 0.4,  brightness: 0.6,  guidance: 3.0 },
+  'Sitar':               { density: 0.5,  brightness: 0.6,  guidance: 3.5 },
+  'Tabla':               { density: 0.6,  brightness: 0.6,  guidance: 3.5 },
+  'Moog Oscillations':   { density: 0.6,  brightness: 0.65, guidance: 3.5 },
+  'Spacey Synths':       { density: 0.5,  brightness: 0.6,  guidance: 3.0 },
+  'Rhodes Piano':        { density: 0.55, brightness: 0.6,  guidance: 3.0 },
+  'Accordion':           { density: 0.45, brightness: 0.6,  guidance: 3.0 },
+};
+
+const DEFAULT_PRESET = { density: 0.6, brightness: 0.6, guidance: 3.5 };
+// Low-weight anchor so music always keeps a pulse, even on abstract votes
+const ANCHOR_PROMPT  = { text: 'danceable', weight: 0.3 };
+
+function pickRandom(arr, n) {
+  return [...arr].sort(() => Math.random() - 0.5).slice(0, n);
+}
 
 // ── Word-panel vote state ─────────────────────────────────────────────────────
 let panelVotes = {};
@@ -85,15 +150,13 @@ async function connectLyria() {
 
     await lyriaSession.setWeightedPrompts({
       weightedPrompts: [
-        { text: 'disco funk',   weight: 1.5 },
-        { text: 'danceable',    weight: 1.0 },
-        { text: 'Rhodes Piano', weight: 0.8 },
-        { text: 'upbeat',       weight: 0.7 },
+        { text: 'Disco Funk', weight: 2.0 },
+        ANCHOR_PROMPT,
       ],
     });
 
     await lyriaSession.setMusicGenerationConfig({
-      musicGenerationConfig: { bpm: 118, brightness: 0.7, density: 0.75 },
+      musicGenerationConfig: { bpm: 118, ...DEFAULT_PRESET },
     });
 
     lyriaSession.play();
@@ -142,9 +205,8 @@ io.on('connection', (socket) => {
     }
   });
 
-  // ── Word-panel: host triggers, controllers vote ───────────────────────────
-  socket.on('word_panel_start', ({ words }) => {
-    // Only the host may start a panel
+  // ── Word-panel: host triggers, each controller gets a different random subset
+  socket.on('word_panel_start', () => {
     if (!hostSocket || socket.id !== hostSocket.id) return;
 
     panelVotes = {};
@@ -152,34 +214,53 @@ io.on('connection', (socket) => {
 
     const duration = 4 * PANEL_BEAT_MS; // ≈ 2033ms
 
-    // Broadcast word list to every controller
+    // Send a different random subset to each controller
     players.forEach((_, sid) => {
-      io.to(sid).emit('show_word_panel', { words, duration });
+      io.to(sid).emit('show_word_panel', {
+        words: pickRandom(LYRIA_WORD_POOL, WORDS_PER_USER),
+        duration,
+      });
     });
 
     panelTimer = setTimeout(async () => {
-      // Tally votes — pick word with most votes (ties: first found)
-      let winner = null, maxVotes = -1;
-      for (const [word, count] of Object.entries(panelVotes)) {
-        if (count > maxVotes) { maxVotes = count; winner = word; }
-      }
+      // Sort all voted words by count descending, take top 10
+      const sorted = Object.entries(panelVotes).sort(([, a], [, b]) => b - a);
+      const top10  = sorted.slice(0, 10);
 
-      const result = { winner, votes: { ...panelVotes } };
+      const result = { top: top10.map(([w]) => w), votes: { ...panelVotes } };
       console.log('[Panel] Result:', result);
 
-      // Notify host + all controllers
-      if (hostSocket) hostSocket.emit('word_panel_result', result);
-      players.forEach((_, sid) => io.to(sid).emit('word_panel_result', result));
+      // Notify host + all controllers (winner = top voted word)
+      const winner = top10[0]?.[0] ?? null;
+      if (hostSocket) hostSocket.emit('word_panel_result', { winner, votes: { ...panelVotes } });
+      players.forEach((_, sid) => io.to(sid).emit('word_panel_result', { winner, votes: { ...panelVotes } }));
 
-      // Update Lyria prompt if we have a winner and an active session
-      if (winner && lyriaSession) {
+      if (top10.length > 0 && lyriaSession) {
         try {
-          await lyriaSession.setWeightedPrompts({
-            weightedPrompts: [...BASE_PROMPTS, { text: winner, weight: 2.0 }],
+          const maxCount = top10[0][1];
+
+          // Top 5: weight proportional to vote count (max 3.0, min 1.0)
+          // Rank 6-10: flat low weight 0.4 — still influence but gently
+          const weightedPrompts = [
+            ...top10.slice(0, 5).map(([word, count]) => ({
+              text:   word,
+              weight: Math.max(1.0, (count / maxCount) * 3.0),
+            })),
+            ...top10.slice(5).map(([word]) => ({ text: word, weight: 0.4 })),
+            ANCHOR_PROMPT, // always keep a danceable pulse
+          ];
+
+          // Apply config preset from the top-voted word
+          const preset = WORD_PRESETS[winner] ?? DEFAULT_PRESET;
+
+          await lyriaSession.setWeightedPrompts({ weightedPrompts });
+          await lyriaSession.setMusicGenerationConfig({
+            musicGenerationConfig: { bpm: 118, ...preset },
           });
-          console.log(`[Lyria] Prompt updated → "${winner}"`);
+
+          console.log(`[Lyria] Updated → top:"${winner}" density:${preset.density} brightness:${preset.brightness}`);
         } catch (err) {
-          console.error('[Lyria] Prompt update failed:', err.message);
+          console.error('[Lyria] Update failed:', err.message);
         }
       }
 

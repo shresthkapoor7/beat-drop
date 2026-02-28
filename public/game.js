@@ -9,10 +9,9 @@ const qrContainer = document.getElementById('qr-container');
 
 let players = {}; // Map socket.id -> Phaser Sprite
 
-const BPM         = 118;
-const BEAT_MS     = 60000 / BPM;   // ≈ 508ms per beat
-const TURN_BEATS  = 8;             // 2 bars of 4/4 — aligns with Lyria's 118 BPM output
-const PANEL_WORDS = ['groovy', 'dreamy', 'electronic', 'jazz', 'upbeat', 'chill'];
+const BPM        = 118;
+const BEAT_MS    = 60000 / BPM;  // ≈ 508ms per beat
+const TURN_BEATS = 8;            // 2 bars of 4/4 — aligns with Lyria's 118 BPM output
 
 // 1. Fetch Room ID and Setup QR Code
 async function initializeRoom() {
@@ -236,7 +235,7 @@ class GameScene extends Phaser.Scene {
         this.time.addEvent({
             delay: 16 * BEAT_MS,
             loop: true,
-            callback: () => socket.emit('word_panel_start', { words: PANEL_WORDS }),
+            callback: () => socket.emit('word_panel_start'),
         });
 
         this.startNextTurn();
