@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-width=1.0">
+    <title>Beat Drop - Host Screen</title>
+    <!-- CDNs -->
+    <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/phaser@3.80.1/dist/phaser.min.js"></script>
+    <!-- Simple QR Code Library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            background-color: #0b0c10;
+            color: #66fcf1;
+            font-family: 'Courier New', Courier, monospace;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        #header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 20px 40px;
+            background: rgba(31, 40, 51, 0.8);
+            border-bottom: 2px solid #45a29e;
+            z-index: 10;
+        }
+
+        h1 {
+            margin: 0;
+            font-size: 2.5rem;
+            text-transform: uppercase;
+            letter-spacing: 4px;
+            text-shadow: 0 0 10px #66fcf1;
+        }
+
+        .info-panel {
+            display: flex;
+            align-items: center;
+            gap: 30px;
+        }
+
+        .stat-box {
+            background: #1f2833;
+            padding: 10px 20px;
+            border-radius: 8px;
+            border: 1px solid #45a29e;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 2rem;
+            font-weight: bold;
+            color: #edf5e1;
+            text-shadow: 0 0 8px #edf5e1;
+        }
+
+        .stat-label {
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            opacity: 0.8;
+            margin-top: 5px;
+        }
+
+        #qr-container {
+            background: white;
+            padding: 10px;
+            border-radius: 8px;
+        }
+
+        #game-container {
+            flex-grow: 1;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            position: relative;
+        }
+
+        /* Phaser Canvas Wrapper */
+        canvas {
+            box-shadow: 0 0 30px rgba(102, 252, 241, 0.2);
+            border-radius: 10px;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="header">
+        <h1>Beat Drop</h1>
+        <div class="info-panel">
+            <div class="stat-box">
+                <div class="stat-value" id="room-id-display">----</div>
+                <div class="stat-label">Room Code</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-value" id="player-count">0</div>
+                <div class="stat-label">Players</div>
+            </div>
+            <div id="qr-container"></div>
+        </div>
+    </div>
+
+    <div id="game-container"></div>
+
+    <script type="module" src="/game.js"></script>
+</body>
+</html>
