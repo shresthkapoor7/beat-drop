@@ -456,6 +456,11 @@
                 statusDiv.style.color = "var(--neon-pink)";
             }
         });
+
+        // ── Color assignment ─────────────────────────────────────────
+        socket.on('set_color', ({ hexColor }) => {
+            document.documentElement.style.setProperty('--neon-blue', hexColor);
+        });
     </script>
 </body>
 

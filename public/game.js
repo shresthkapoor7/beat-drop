@@ -76,7 +76,7 @@ socket.on('word_panel_result', ({ winner, votes }) => {
 
 // Bridge socket events to window — vibe-sidebar.js listens here
 socket.on('panel_start', (data) => window.dispatchEvent(new CustomEvent('lyria_panel_start', { detail: data })));
-socket.on('vote_update',  (data) => window.dispatchEvent(new CustomEvent('lyria_vote_update',  { detail: data })));
+socket.on('vote_update', (data) => window.dispatchEvent(new CustomEvent('lyria_vote_update', { detail: data })));
 
 // ── Web Audio — stream Lyria PCM from server ──────────────────────────────────
 // Raw PCM: 16-bit signed, 48kHz, stereo interleaved (L R L R ...)
@@ -128,7 +128,8 @@ document.addEventListener('keydown', ensureAudio, { once: true });
 class GameScene extends Phaser.Scene {
     constructor() {
         super({ key: 'GameScene' });
-        this.colors = [0xff0044, 0x00ff00, 0x0044ff, 0xffff00, 0xff00ff, 0x00ffff];
+        // Green, Blue, Purple, Yellow, Orange/Red
+        this.colors = [0x00ff66, 0x00f3ff, 0xa100ff, 0xffea00, 0xff0044];
         this.gameStarted = false;
 
         this.turnDuration = TURN_BEATS * BEAT_MS; // 8 beats ≈ 4067ms, aligned to 118 BPM
@@ -447,15 +448,21 @@ class GameScene extends Phaser.Scene {
             return;
         }
 
-        const x = Phaser.Math.Between(150, 650);
-        const y = Phaser.Math.Between(150, 300);
-        const color = Phaser.Math.RND.pick(this.colors);
-
         const charIndex = this.getAvailableCharIndex();
 
-        // Glowing Platform
-        const platform = this.add.ellipse(x, y + 60, 80, 25, 0x00f3ff, 0.2);
-        platform.setStrokeStyle(2, 0x00f3ff, 0.5);
+        // Spread players across 5 fixed positions to prevent overlapping
+        const xPositions = [150, 275, 400, 525, 650];
+        const yPositions = [280, 230, 300, 230, 280];
+
+        const x = xPositions[charIndex - 1] || Phaser.Math.Between(150, 650);
+        const y = yPositions[charIndex - 1] || Phaser.Math.Between(200, 300);
+
+        // Assign color based on charIndex so they never repeat unless > 6 players
+        const color = this.colors[(charIndex - 1) % this.colors.length];
+
+        // Glowing Platform (color matches player's assigned color)
+        const platform = this.add.ellipse(x, y + 60, 80, 25, color, 0.2);
+        platform.setStrokeStyle(2, color, 0.5);
 
 
         // Player Sprite (Image)
@@ -485,6 +492,10 @@ class GameScene extends Phaser.Scene {
             finishedTurn: false,
             ui: { sprite, platform, nameTag, baseScale: scale, baseY: y }
         };
+
+        // Convert 0xff0000 format to #ff0000 for CSS
+        const hexColor = '#' + color.toString(16).padStart(6, '0');
+        socket.emit('player_color_assigned', { socketId: id, hexColor });
 
         // If game is already started, ensure they see the current sequence
         if (this.gameStarted && this.currentSequence.length > 0) {

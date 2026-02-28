@@ -123,7 +123,7 @@ function pickRandom(arr, n) {
 // Shared: tally votes → update Lyria + notify host + controllers
 async function applyVoteResult(votes) {
   const sorted = Object.entries(votes).sort(([, a], [, b]) => b - a);
-  const top10  = sorted.slice(0, 10);
+  const top10 = sorted.slice(0, 10);
   const winner = top10[0]?.[0] ?? null;
   const result = { winner, votes: { ...votes } };
 
@@ -207,7 +207,7 @@ async function generateInsult(playerName) {
 app.get('/test-votes', (_req, res) => {
   if (!hostSocket) return res.json({ error: 'No host connected' });
 
-  const duration  = 4 * PANEL_BEAT_MS; // same as real panel
+  const duration = 4 * PANEL_BEAT_MS; // same as real panel
   const fakeUsers = 12; // simulated voters
 
   // Pick random words like real controllers would see (overlapping subsets)
@@ -224,7 +224,7 @@ app.get('/test-votes', (_req, res) => {
   // Drip random votes in over the panel duration
   let sent = 0;
   const totalVotes = fakeUsers;
-  const interval   = Math.floor(duration / totalVotes);
+  const interval = Math.floor(duration / totalVotes);
 
   const drip = setInterval(async () => {
     if (sent >= totalVotes) {
@@ -338,7 +338,14 @@ io.on('connection', (socket) => {
     // Generate an insult and send it back to the host, checking if host still exists
     if (hostSocket && socket.id === hostSocket.id) {
       const insult = await generateInsult(playerName);
-      if (hostSocket) hostSocket.emit('player_insult', { socketId, insult });
+      hostSocket.emit('player_insult', { socketId, insult });
+    }
+  });
+
+  socket.on('player_color_assigned', ({ socketId, hexColor }) => {
+    // Only the host should assign colors
+    if (hostSocket && socket.id === hostSocket.id) {
+      io.to(socketId).emit('set_color', { hexColor });
     }
   });
 
