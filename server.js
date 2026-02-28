@@ -1,56 +1,178 @@
+import 'dotenv/config';
 import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { GoogleGenAI } from '@google/genai';
 
 // --- Instructions ---
-// To run this hackathon prototype:
 // 1. npm install
 // 2. node server.js
-// 3. Open http://localhost:3000 in a browser for the Host Screen.
+// 3. Open http://localhost:3000 for the Host Screen
 // -------------------
 
 const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const __dirname  = path.dirname(__filename);
 
-const app = express();
+const app        = express();
 const httpServer = createServer(app);
-const io = new Server(httpServer);
+const io         = new Server(httpServer);
 
-// State
-let hostSocket = null;
-const players = new Map();
+app.use(express.static(path.join(__dirname, 'public')));
 
-// Helper to generate a 6-character room ID
+// ── Lyria session (module-level so vote handler can update prompts) ───────────
+let lyriaSession = null;
+
+// ── Word pool — shown randomly per controller ─────────────────────────────────
+const LYRIA_WORD_POOL = [
+  // Genre
+  'Dubstep', 'Bossa Nova', 'Drum & Bass', 'Celtic Folk', 'Hyperpop',
+  'Disco Funk', 'Lo-Fi Hip Hop', 'Minimal Techno', 'Jazz Fusion', 'Reggae',
+  'Psytrance', 'Neo-Soul', 'Afrobeat', 'Chiptune', 'Trip Hop',
+  'Electro Swing', 'Deep House', 'Bluegrass', 'Orchestral Score', 'Ambient',
+  // Instrument
+  'Bagpipes', 'Moog Oscillations', 'Rhodes Piano', 'Tabla', 'Sitar',
+  '808 Hip Hop Beat', 'Harmonica', 'TR-909 Drum Machine', 'Spacey Synths',
+  'Hang Drum', 'Accordion', 'Cello',
+  // Mood
+  'Dreamy', 'Upbeat', 'Ominous Drone', 'Huge Drop', 'Chill',
+  'Glitchy Effects', 'Ethereal Ambience', 'Fat Beats', 'Weird Noises',
+];
+
+const WORDS_PER_USER = 5;
+
+// Per-word density/brightness/guidance presets for obvious music shifts
+const WORD_PRESETS = {
+  'Dubstep':             { density: 0.9,  brightness: 0.9,  guidance: 5.0 },
+  'Drum & Bass':         { density: 1.0,  brightness: 0.8,  guidance: 5.0 },
+  'Hyperpop':            { density: 0.95, brightness: 1.0,  guidance: 4.5 },
+  'Psytrance':           { density: 0.9,  brightness: 0.85, guidance: 4.5 },
+  'Huge Drop':           { density: 1.0,  brightness: 1.0,  guidance: 5.0 },
+  'Glitchy Effects':     { density: 0.9,  brightness: 0.8,  guidance: 4.5 },
+  'Weird Noises':        { density: 0.8,  brightness: 0.7,  guidance: 4.5 },
+  'Chiptune':            { density: 0.85, brightness: 0.95, guidance: 4.0 },
+  'Fat Beats':           { density: 0.85, brightness: 0.75, guidance: 4.0 },
+  '808 Hip Hop Beat':    { density: 0.8,  brightness: 0.7,  guidance: 4.0 },
+  'TR-909 Drum Machine': { density: 0.8,  brightness: 0.75, guidance: 4.0 },
+  'Deep House':          { density: 0.75, brightness: 0.7,  guidance: 4.0 },
+  'Disco Funk':          { density: 0.8,  brightness: 0.75, guidance: 3.5 },
+  'Afrobeat':            { density: 0.8,  brightness: 0.75, guidance: 3.5 },
+  'Electro Swing':       { density: 0.7,  brightness: 0.7,  guidance: 3.5 },
+  'Upbeat':              { density: 0.8,  brightness: 0.8,  guidance: 3.5 },
+  'Neo-Soul':            { density: 0.6,  brightness: 0.6,  guidance: 3.0 },
+  'Jazz Fusion':         { density: 0.65, brightness: 0.6,  guidance: 3.0 },
+  'Orchestral Score':    { density: 0.7,  brightness: 0.7,  guidance: 3.5 },
+  'Minimal Techno':      { density: 0.5,  brightness: 0.6,  guidance: 4.0 },
+  'Reggae':              { density: 0.5,  brightness: 0.6,  guidance: 3.0 },
+  'Bluegrass':           { density: 0.45, brightness: 0.65, guidance: 3.5 },
+  'Celtic Folk':         { density: 0.4,  brightness: 0.65, guidance: 3.5 },
+  'Bossa Nova':          { density: 0.35, brightness: 0.55, guidance: 3.0 },
+  'Trip Hop':            { density: 0.55, brightness: 0.45, guidance: 3.0 },
+  'Lo-Fi Hip Hop':       { density: 0.4,  brightness: 0.35, guidance: 2.5 },
+  'Chill':               { density: 0.3,  brightness: 0.45, guidance: 2.5 },
+  'Dreamy':              { density: 0.25, brightness: 0.4,  guidance: 2.0 },
+  'Ambient':             { density: 0.15, brightness: 0.3,  guidance: 2.0 },
+  'Ominous Drone':       { density: 0.2,  brightness: 0.15, guidance: 3.0 },
+  'Ethereal Ambience':   { density: 0.2,  brightness: 0.35, guidance: 2.0 },
+  'Hang Drum':           { density: 0.35, brightness: 0.55, guidance: 3.0 },
+  'Bagpipes':            { density: 0.5,  brightness: 0.65, guidance: 3.5 },
+  'Cello':               { density: 0.4,  brightness: 0.5,  guidance: 3.0 },
+  'Harmonica':           { density: 0.4,  brightness: 0.6,  guidance: 3.0 },
+  'Sitar':               { density: 0.5,  brightness: 0.6,  guidance: 3.5 },
+  'Tabla':               { density: 0.6,  brightness: 0.6,  guidance: 3.5 },
+  'Moog Oscillations':   { density: 0.6,  brightness: 0.65, guidance: 3.5 },
+  'Spacey Synths':       { density: 0.5,  brightness: 0.6,  guidance: 3.0 },
+  'Rhodes Piano':        { density: 0.55, brightness: 0.6,  guidance: 3.0 },
+  'Accordion':           { density: 0.45, brightness: 0.6,  guidance: 3.0 },
+};
+
+const DEFAULT_PRESET = { density: 0.6, brightness: 0.6, guidance: 3.5 };
+// Low-weight anchor so music always keeps a pulse, even on abstract votes
+const ANCHOR_PROMPT  = { text: 'danceable', weight: 0.3 };
+
+function pickRandom(arr, n) {
+  return [...arr].sort(() => Math.random() - 0.5).slice(0, n);
+}
+
+// ── Word-panel vote state ─────────────────────────────────────────────────────
+let panelVotes = {};
+let panelTimer  = null;
+
+const PANEL_BEAT_MS = Math.round(60000 / 118); // ≈ 508ms per beat
+
+// ── Room & player state ───────────────────────────────────────────────────────
 function generateRoomId() {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
   let result = '';
-  for (let i = 0; i < 6; i++) {
-    result += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
+  for (let i = 0; i < 6; i++) result += chars.charAt(Math.floor(Math.random() * chars.length));
   return result;
 }
 
 const currentRoomId = generateRoomId();
+let   hostSocket    = null;
+const players       = new Map();
 
-// Middleware
-app.use(express.static(path.join(__dirname, 'public')));
+app.get('/room', (_req, res) => res.json({ roomId: currentRoomId }));
 
-// API Endpoint for the host to get the room ID
-app.get('/room', (req, res) => {
-  res.json({ roomId: currentRoomId });
-});
+// ── Lyria connection ──────────────────────────────────────────────────────────
+async function connectLyria() {
+  if (!process.env.GEMINI_API_KEY) {
+    console.warn('[Lyria] No GEMINI_API_KEY — no music');
+    return;
+  }
 
-// Socket.io logic
+  try {
+    console.log('[Lyria] Connecting to Gemini...');
+    const client = new GoogleGenAI({
+      apiKey:      process.env.GEMINI_API_KEY,
+      httpOptions: { apiVersion: 'v1alpha' },
+    });
+
+    lyriaSession = await client.live.music.connect({
+      model: 'models/lyria-realtime-exp',
+      callbacks: {
+        onmessage: (message) => {
+          const chunks = message.serverContent?.audioChunks;
+          if (!chunks?.length || !hostSocket) return;
+          // data is already base64 from the JSON payload — send as-is
+          const data = chunks[0].data;
+          if (data) hostSocket.emit('audio_chunk', data);
+        },
+        onerror: (err) => console.error('[Lyria] Stream error:', err),
+        onclose: () => {
+          console.warn('[Lyria] Connection closed, reconnecting in 3s...');
+          lyriaSession = null;
+          setTimeout(connectLyria, 3000);
+        },
+      },
+    });
+
+    await lyriaSession.setWeightedPrompts({
+      weightedPrompts: [
+        { text: 'Disco Funk', weight: 2.0 },
+        ANCHOR_PROMPT,
+      ],
+    });
+
+    await lyriaSession.setMusicGenerationConfig({
+      musicGenerationConfig: { bpm: 118, ...DEFAULT_PRESET },
+    });
+
+    lyriaSession.play();
+    console.log('[Lyria] Music streaming started');
+
+  } catch (err) {
+    console.error('[Lyria] Failed to connect:', err.message);
+  }
+}
+
+// ── Socket.io — same as original, just forwards inputs ────────────────────────
 io.on('connection', (socket) => {
   console.log(`Socket connected: ${socket.id}`);
 
-  // Registration
   socket.on('register', (data) => {
     const { role, roomId, name } = data;
-
-    // For simplicity, we only enforce matching the current room ID loosely
     if (roomId !== currentRoomId) {
       console.log(`Warning: Socket ${socket.id} presented mismatched roomId ${roomId}`);
     }
@@ -58,68 +180,117 @@ io.on('connection', (socket) => {
     if (role === 'host') {
       console.log(`Host registered: ${socket.id}`);
       hostSocket = socket;
-
-      // Send any already registered players to the newly connected host
-      players.forEach((p, id) => {
-        hostSocket.emit('player_joined', {
-          id: p.id,
-          name: p.name,
-          totalPlayers: players.size
-        });
+      // Catch up new host on existing players
+      players.forEach(p => {
+        hostSocket.emit('player_joined', { id: p.id, name: p.name, totalPlayers: players.size });
       });
+
     } else if (role === 'controller') {
       console.log(`Player registered: ${socket.id} as ${name || 'Unknown'}`);
       players.set(socket.id, { id: socket.id, name: name || 'Player' });
-
-      // Notify host that a player joined
       if (hostSocket) {
-        hostSocket.emit('player_joined', {
-          id: socket.id,
-          name: name || 'Player',
-          totalPlayers: players.size
-        });
+        hostSocket.emit('player_joined', { id: socket.id, name: name || 'Player', totalPlayers: players.size });
       }
     }
   });
 
-  // Handle input from controllers
+  // Forward inputs directly to host — game logic stays in the client
   socket.on('input', (data) => {
-    // Only forward if it comes from a registered player
     if (players.has(socket.id) && hostSocket) {
-      // Forward the input directly to the host
       hostSocket.emit('input', {
-        playerId: socket.id,
+        playerId:  socket.id,
         direction: data.direction,
-        timestamp: data.timestamp || Date.now()
+        timestamp: data.timestamp || Date.now(),
       });
     }
   });
 
-  // Disconnection
+  // ── Word-panel: host triggers, each controller gets a different random subset
+  socket.on('word_panel_start', () => {
+    if (!hostSocket || socket.id !== hostSocket.id) return;
+
+    panelVotes = {};
+    if (panelTimer) { clearTimeout(panelTimer); panelTimer = null; }
+
+    const duration = 4 * PANEL_BEAT_MS; // ≈ 2033ms
+
+    // Send a different random subset to each controller
+    players.forEach((_, sid) => {
+      io.to(sid).emit('show_word_panel', {
+        words: pickRandom(LYRIA_WORD_POOL, WORDS_PER_USER),
+        duration,
+      });
+    });
+
+    panelTimer = setTimeout(async () => {
+      // Sort all voted words by count descending, take top 10
+      const sorted = Object.entries(panelVotes).sort(([, a], [, b]) => b - a);
+      const top10  = sorted.slice(0, 10);
+
+      const result = { top: top10.map(([w]) => w), votes: { ...panelVotes } };
+      console.log('[Panel] Result:', result);
+
+      // Notify host + all controllers (winner = top voted word)
+      const winner = top10[0]?.[0] ?? null;
+      if (hostSocket) hostSocket.emit('word_panel_result', { winner, votes: { ...panelVotes } });
+      players.forEach((_, sid) => io.to(sid).emit('word_panel_result', { winner, votes: { ...panelVotes } }));
+
+      if (top10.length > 0 && lyriaSession) {
+        try {
+          const maxCount = top10[0][1];
+
+          // Top 5: weight proportional to vote count (max 3.0, min 1.0)
+          // Rank 6-10: flat low weight 0.4 — still influence but gently
+          const weightedPrompts = [
+            ...top10.slice(0, 5).map(([word, count]) => ({
+              text:   word,
+              weight: Math.max(1.0, (count / maxCount) * 3.0),
+            })),
+            ...top10.slice(5).map(([word]) => ({ text: word, weight: 0.4 })),
+            ANCHOR_PROMPT, // always keep a danceable pulse
+          ];
+
+          // Apply config preset from the top-voted word
+          const preset = WORD_PRESETS[winner] ?? DEFAULT_PRESET;
+
+          await lyriaSession.setWeightedPrompts({ weightedPrompts });
+          await lyriaSession.setMusicGenerationConfig({
+            musicGenerationConfig: { bpm: 118, ...preset },
+          });
+
+          console.log(`[Lyria] Updated → top:"${winner}" density:${preset.density} brightness:${preset.brightness}`);
+        } catch (err) {
+          console.error('[Lyria] Update failed:', err.message);
+        }
+      }
+
+      panelVotes = {};
+      panelTimer  = null;
+    }, duration);
+  });
+
+  socket.on('vote', ({ word }) => {
+    if (!players.has(socket.id) || !word) return;
+    panelVotes[word] = (panelVotes[word] || 0) + 1;
+    console.log(`[Vote] ${players.get(socket.id).name}: "${word}"`);
+  });
+
   socket.on('disconnect', () => {
     console.log(`Socket disconnected: ${socket.id}`);
-
     if (hostSocket && socket.id === hostSocket.id) {
-      console.log('Host disconnected.');
       hostSocket = null;
     } else if (players.has(socket.id)) {
-      console.log(`Player disconnected: ${socket.id}`);
       players.delete(socket.id);
-
-      // Notify host a player left
-      if (hostSocket) {
-        hostSocket.emit('player_left', {
-          id: socket.id,
-          totalPlayers: players.size
-        });
-      }
+      if (hostSocket) hostSocket.emit('player_left', { id: socket.id, totalPlayers: players.size });
     }
   });
 });
 
+// ── Start ─────────────────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 3000;
 httpServer.listen(PORT, () => {
-  console.log(`===============================================`);
-  console.log(`🚀 Beat Drop Server running on port ${PORT}`);
-  console.log(`===============================================`);
+  console.log(`\n===============================================`);
+  console.log(` Beat Drop  →  http://localhost:${PORT}`);
+  console.log(`===============================================\n`);
+  connectLyria();
 });

@@ -129,6 +129,63 @@
             grid-column: 2;
             grid-row: 3;
         }
+
+        /* ── Word Panel Overlay ───────────────────────────────────────── */
+        #word-panel {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(11, 12, 16, 0.97);
+            z-index: 100;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 16px;
+        }
+
+        #word-panel h3 {
+            margin: 0 0 8px;
+            font-size: 1.3rem;
+            color: #66fcf1;
+            text-transform: uppercase;
+            letter-spacing: 3px;
+        }
+
+        .word-btn {
+            width: 80%;
+            max-width: 320px;
+            padding: 16px;
+            font-size: 1.2rem;
+            font-family: 'Courier New', monospace;
+            background: #1f2833;
+            color: #edf5e1;
+            border: 2px solid #45a29e;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: background 0.12s;
+        }
+
+        .word-btn:active {
+            background: #45a29e;
+            color: #0b0c10;
+        }
+
+        .word-btn.selected {
+            background: #66fcf1;
+            color: #0b0c10;
+            border-color: #66fcf1;
+        }
+
+        .word-btn:disabled {
+            opacity: 0.35;
+            cursor: default;
+        }
+
+        #panel-timer {
+            font-size: 0.85rem;
+            color: #c5c6c7;
+            margin-top: 4px;
+        }
     </style>
 </head>
 
@@ -142,6 +199,13 @@
     <div id="login-modal">
         <input type="text" id="player-name" placeholder="Enter Name" maxlength="12" autocomplete="off" />
         <button id="join-btn">JOIN GAME</button>
+    </div>
+
+    <!-- Word panel — shown every 8 beats -->
+    <div id="word-panel">
+        <h3>Pick the vibe!</h3>
+        <div id="word-buttons"></div>
+        <div id="panel-timer"></div>
     </div>
 
     <div id="controller-ui">
@@ -222,6 +286,63 @@
             btn.addEventListener('touchstart', handlePress, { passive: false });
             btn.addEventListener('mousedown', handlePress);
         });
+
+        // ── Word Panel ────────────────────────────────────────────────────────
+        const wordPanel    = document.getElementById('word-panel');
+        const wordButtons  = document.getElementById('word-buttons');
+        const panelTimer   = document.getElementById('panel-timer');
+        let   closeTimeout = null;
+        let   countInterval = null;
+        let   hasVoted     = false;
+
+        function openWordPanel(words, duration) {
+            hasVoted = false;
+            wordButtons.innerHTML = '';
+
+            words.forEach(word => {
+                const btn = document.createElement('button');
+                btn.className   = 'word-btn';
+                btn.textContent = word;
+                btn.addEventListener('click', () => {
+                    if (hasVoted || !socket.connected) return;
+                    hasVoted = true;
+                    socket.emit('vote', { word });
+                    document.querySelectorAll('.word-btn').forEach(b => {
+                        b.disabled = true;
+                        if (b.textContent === word) b.classList.add('selected');
+                    });
+                    if (navigator.vibrate) navigator.vibrate(80);
+                });
+                wordButtons.appendChild(btn);
+            });
+
+            wordPanel.style.display = 'flex';
+            document.getElementById('controller-ui').style.display = 'none';
+
+            // Countdown
+            let remaining = Math.ceil(duration / 1000);
+            panelTimer.textContent = `${remaining}s`;
+            clearInterval(countInterval);
+            countInterval = setInterval(() => {
+                remaining--;
+                panelTimer.textContent = remaining > 0 ? `${remaining}s` : '';
+                if (remaining <= 0) clearInterval(countInterval);
+            }, 1000);
+
+            // Auto-close as fallback
+            if (closeTimeout) clearTimeout(closeTimeout);
+            closeTimeout = setTimeout(closeWordPanel, duration + 200);
+        }
+
+        function closeWordPanel() {
+            wordPanel.style.display = 'none';
+            document.getElementById('controller-ui').style.display = 'block';
+            clearInterval(countInterval);
+            if (closeTimeout) { clearTimeout(closeTimeout); closeTimeout = null; }
+        }
+
+        socket.on('show_word_panel', ({ words, duration }) => openWordPanel(words, duration));
+        socket.on('word_panel_result', closeWordPanel);
     </script>
 </body>
 
