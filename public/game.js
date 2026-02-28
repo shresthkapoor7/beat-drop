@@ -69,9 +69,14 @@ socket.on('player_insult', ({ socketId, insult }) => {
     if (window.gameScene) window.gameScene.showInsult(socketId, insult);
 });
 
-socket.on('word_panel_result', ({ winner }) => {
+socket.on('word_panel_result', ({ winner, votes }) => {
     if (winner && window.gameScene) window.gameScene.showWordResult(winner);
+    window.dispatchEvent(new CustomEvent('lyria_panel_result', { detail: { winner, votes } }));
 });
+
+// Bridge socket events to window — vibe-sidebar.js listens here
+socket.on('panel_start', (data) => window.dispatchEvent(new CustomEvent('lyria_panel_start', { detail: data })));
+socket.on('vote_update',  (data) => window.dispatchEvent(new CustomEvent('lyria_vote_update',  { detail: data })));
 
 // ── Web Audio — stream Lyria PCM from server ──────────────────────────────────
 // Raw PCM: 16-bit signed, 48kHz, stereo interleaved (L R L R ...)
