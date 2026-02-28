@@ -45,9 +45,9 @@ initializeRoom();
 
 // 2. Socket.io Event Listeners (Logic handled inside Phaser Scene)
 socket.on('player_joined', (data) => {
-    console.log("Player joined:", data.id);
+    console.log("Player joined:", data.id, data.name);
     playerCountDisplay.innerText = data.totalPlayers;
-    if (gameScene) gameScene.addPlayer(data.id);
+    if (gameScene) gameScene.addPlayer(data.id, data.name);
 });
 
 socket.on('player_left', (data) => {
@@ -67,14 +67,35 @@ class GameScene extends Phaser.Scene {
     constructor() {
         super({ key: 'GameScene' });
         this.colors = [0xff0044, 0x00ff00, 0x0044ff, 0xffff00, 0xff00ff, 0x00ffff];
+        this.gameStarted = false;
+
+        this.turnDuration = 3500; // ms
+        this.turnTimer = null;
+
+        this.currentSequence = [];
+        this.sequenceSprites = [];
+
+        // Define lane symbols
+        this.symbols = {
+            'LEFT': '⬅️',
+            'DOWN': '⬇️',
+            'UP': '⬆️',
+            'RIGHT': '➡️'
+        };
+
+        this.beatBarX = 200;
+        this.beatBarY = 500;
+        this.beatBarWidth = 400;
+
+        // The Hit Zone is the last 15% of the bar
+        this.hitZoneStart = 0.85;
+        this.hitZoneEnd = 0.95;
     }
 
-    preload() {
-        // No assets to load, we'll draw shapes
-    }
+    preload() { }
 
     create() {
-        // Simple animated background grid
+        // Background grid
         this.grid = this.add.grid(
             this.cameras.main.width / 2,
             this.cameras.main.height / 2,
@@ -84,110 +105,283 @@ class GameScene extends Phaser.Scene {
             0x0b0c10, 1, 0x1f2833, 0.5
         );
 
-        // Store reference globally so socket events can access it easily
+        // --- Beat Bar UI ---
+        this.beatBarBg = this.add.rectangle(this.beatBarX, this.beatBarY, this.beatBarWidth, 20, 0x1f2833).setOrigin(0, 0.5);
+        this.beatBarBg.setStrokeStyle(2, 0x45a29e);
+
+        // Hit Zone Indicator
+        const hzX = this.beatBarX + (this.beatBarWidth * this.hitZoneStart);
+        const hzW = this.beatBarWidth * (this.hitZoneEnd - this.hitZoneStart);
+        this.hitZoneRect = this.add.rectangle(hzX, this.beatBarY, hzW, 40, 0x66fcf1).setOrigin(0, 0.5).setAlpha(0.6);
+
+        // The Sliding Playhead
+        this.playhead = this.add.circle(this.beatBarX, this.beatBarY, 15, 0xff0044);
+
+        // Sequence Container (Center)
+        this.sequenceText = this.add.text(400, 420, '', {
+            fontSize: '48px', color: '#ffffff', fontFamily: 'sans-serif'
+        }).setOrigin(0.5, 0.5);
+
+        // --- Scoreboard UI ---
+        this.scoreboardBg = this.add.rectangle(800, 0, 200, 600, 0x000000, 0.7).setOrigin(1, 0);
+        this.boardTitle = this.add.text(700, 20, 'LEADERBOARD', { fontSize: '20px', color: '#66fcf1', fontStyle: 'bold' }).setOrigin(0.5, 0);
+        this.playerNamesTexts = {}; // Maps id to Text object
+
+        // Start Overlay
+        this.startOverlay = this.add.rectangle(400, 300, 800, 600, 0x000000, 0.9);
+        this.startText = this.add.text(400, 300, 'WAITING FOR PLAYERS\nCLICK TO START', {
+            fontSize: '32px', color: '#66fcf1', align: 'center', fontStyle: 'bold'
+        }).setOrigin(0.5, 0.5);
+
+        this.tweens.add({ targets: this.startText, alpha: 0.2, duration: 800, yoyo: true, repeat: -1 });
+
+        this.input.on('pointerdown', () => { if (!this.gameStarted) this.startGame(); });
+
         window.gameScene = this;
     }
 
+    startGame() {
+        if (Object.keys(players).length === 0) {
+            this.startText.setText("WAITING FOR PLAYERS\n(Need at least 1 player to start!)");
+            return;
+        }
+
+        this.gameStarted = true;
+        this.startOverlay.destroy();
+        this.startText.destroy();
+
+        const bgMusic = document.getElementById('bg-music');
+        if (bgMusic) bgMusic.play().catch(e => console.error("Audio play blocked", e));
+
+        this.startNextTurn();
+    }
+
+    startNextTurn() {
+        // Reset players
+        Object.values(players).forEach(p => {
+            p.sequenceProgress = 0;
+            p.failedTurn = false;
+            p.finishedTurn = false;
+            p.ui.sprite.setFillStyle(p.color); // Rectangles use setFillStyle instead of clearTint
+            p.ui.sprite.setScale(1);
+        });
+
+        // Generate a sequence of 6 arrows
+        const directions = ['LEFT', 'DOWN', 'UP', 'RIGHT'];
+        this.currentSequence = [];
+        let seqStr = '';
+        for (let i = 0; i < 6; i++) {
+            const dir = Phaser.Math.RND.pick(directions);
+            this.currentSequence.push(dir);
+            seqStr += this.symbols[dir] + ' ';
+        }
+
+        this.sequenceText.setText(seqStr.trim());
+
+        // Flash text to indicate new turn
+        this.tweens.add({ targets: this.sequenceText, scale: 1.2, duration: 150, yoyo: true });
+
+        // Reset and start playhead animation
+        this.playhead.x = this.beatBarX;
+
+        if (this.turnTween) {
+            this.turnTween.stop();
+            this.turnTween = null;
+        }
+
+        this.turnTween = this.tweens.add({
+            targets: this.playhead,
+            x: this.beatBarX + this.beatBarWidth,
+            duration: this.turnDuration,
+            ease: 'Linear',
+            onComplete: () => {
+                this.evaluateMisses();
+                // Delay next turn slightly to avoid tween loop iteration conflicts in Phaser
+                this.time.delayedCall(50, () => {
+                    this.startNextTurn();
+                });
+            }
+        });
+    }
+
+    evaluateMisses() {
+        // Anyone who didn't finish FAILS the turn
+        Object.values(players).forEach(player => {
+            if (!player.finishedTurn && !player.failedTurn) {
+                player.failedTurn = true;
+                this.showFeedback(player, 'MISS!', 0xff0000);
+            }
+        });
+    }
+
+    updateScoreboard() {
+        // Sort players by score descending
+        const sortedPlayers = Object.values(players).sort((a, b) => b.score - a.score);
+
+        let startY = 80;
+        sortedPlayers.forEach((p, index) => {
+            if (!this.playerNamesTexts[p.id]) {
+                this.playerNamesTexts[p.id] = this.add.text(610, 0, '', {
+                    fontSize: '18px', color: '#ffffff', fontStyle: 'bold'
+                });
+            }
+
+            const txt = this.playerNamesTexts[p.id];
+            txt.y = startY + (index * 40);
+
+            // Format: #1 Name - Score
+            txt.setText(`#${index + 1} ${p.name.substring(0, 8)}\n${p.score}`);
+            txt.setColor(this.numberToHex(p.color));
+        });
+    }
+
+    numberToHex(num) {
+        return '#' + num.toString(16).padStart(6, '0');
+    }
+
     update(time, delta) {
-        // Slowly move grid down to simulate moving forward
         this.grid.tilePositionY -= 0.5;
     }
 
-    addPlayer(id) {
-        // Random position within safe bounds
-        const x = Phaser.Math.Between(100, this.cameras.main.width - 100);
-        const y = Phaser.Math.Between(100, this.cameras.main.height - 100);
+    addPlayer(id, name) {
+        if (players[id]) return; // Prevent duplicate instantiation
+
+        const x = Phaser.Math.Between(100, 500);
+        const y = Phaser.Math.Between(150, 350);
         const color = Phaser.Math.RND.pick(this.colors);
 
-        // Create a simple rectangle representing the player
+        // Player Sprite
         const sprite = this.add.rectangle(x, y, 40, 80, color);
         sprite.setStrokeStyle(4, 0xffffff);
 
-        // Add a pulsing effect to show they are alive
+        // Player Name Tag above sprite
+        const nameTag = this.add.text(x, y - 60, name || 'Player', { fontSize: '14px', color: '#ffffff', backgroundColor: '#000000' }).setOrigin(0.5);
+
         this.tweens.add({
-            targets: sprite,
-            scaleY: 1.1,
-            scaleX: 1.05,
-            duration: 500,
-            yoyo: true,
-            repeat: -1,
-            ease: 'Sine.easeInOut'
+            targets: sprite, scaleY: 1.1, scaleX: 1.05, duration: 500, yoyo: true, repeat: -1, ease: 'Sine.easeInOut'
         });
 
-        players[id] = sprite;
+        players[id] = {
+            id,
+            name: name || 'Player',
+            score: 0,
+            color,
+            sequenceProgress: 0,
+            failedTurn: false,
+            finishedTurn: false,
+            ui: { sprite, nameTag }
+        };
+
+        // If game is already started, ensure they see the current sequence
+        if (this.gameStarted && this.currentSequence.length > 0) {
+            this.sequenceText.setText(this.currentSequence.map(d => this.symbols[d]).join(' '));
+        }
+
+        this.updateScoreboard();
     }
 
     removePlayer(id) {
         if (players[id]) {
-            players[id].destroy();
+            const p = players[id];
+            p.ui.sprite.destroy();
+            p.ui.nameTag.destroy();
+            if (this.playerNamesTexts[id]) {
+                this.playerNamesTexts[id].destroy();
+                delete this.playerNamesTexts[id];
+            }
             delete players[id];
+            this.updateScoreboard();
         }
     }
 
     handleInput(data) {
         const { playerId, direction } = data;
-        const sprite = players[playerId];
+        const player = players[playerId];
+        if (!player || !this.gameStarted) return;
 
-        if (!sprite) return;
+        // Visual feedback of what they pressed
+        const symbol = this.symbols[direction] || '💥';
+        const flashText = this.add.text(player.ui.sprite.x, player.ui.sprite.y - 40, symbol, { fontSize: '30px' }).setOrigin(0.5);
+        this.tweens.add({ targets: flashText, y: player.ui.sprite.y - 80, alpha: 0, duration: 400, onComplete: () => flashText.destroy() });
 
-        // Stop current tweens to prevent weird overlapping animations
-        this.tweens.killTweensOf(sprite);
-
-        // Reset scale and flip
-        sprite.setScale(1);
-        sprite.angle = 0;
-
-        let targetY = sprite.y;
+        // Avatar movement based on direction
         let targetAngle = 0;
+        let targetY = player.ui.sprite.y; // Ensure we return to base Y due to yoyo
+        if (direction === 'LEFT') targetAngle = -20;
+        if (direction === 'RIGHT') targetAngle = 20;
+        if (direction === 'UP') targetY -= 20;
+        if (direction === 'DOWN') targetY += 20;
 
-        // Determine animation based on input direction
-        switch (direction) {
-            case 'UP':
-                targetY -= 30;
-                break;
-            case 'DOWN':
-                targetY += 30;
-                break;
-            case 'LEFT':
-                targetAngle = -25;
-                break;
-            case 'RIGHT':
-                targetAngle = 25;
-                break;
+        this.tweens.add({ targets: player.ui.sprite, angle: targetAngle, y: targetY, duration: 100, yoyo: true });
+
+        // If turn already resolved for this player, ignore
+        if (player.failedTurn || player.finishedTurn) return;
+
+        // Handle BAM action
+        if (direction === 'BAM') {
+            if (player.sequenceProgress === this.currentSequence.length) {
+                // Determine if BAM was on beat
+                const progress = (this.playhead.x - this.beatBarX) / this.beatBarWidth;
+
+                if (progress >= this.hitZoneStart && progress <= this.hitZoneEnd) {
+                    // PERFECT HIT!
+                    player.score += 500;
+                    player.finishedTurn = true;
+                    this.showFeedback(player, 'PERFECT!', 0x00ff00);
+
+                    // Dance Animation
+                    this.tweens.add({
+                        targets: player.ui.sprite, y: player.ui.sprite.y - 50, scaleX: 1.3, duration: 200, yoyo: true
+                    });
+                } else {
+                    // Missed the hit zone timing
+                    player.failedTurn = true;
+                    this.showFeedback(player, 'BAD TIMING!', 0xff0000);
+                }
+            } else {
+                // Pressed BAM before finishing sequence
+                player.failedTurn = true;
+                this.showFeedback(player, 'TOO EARLY!', 0xff0000);
+            }
+            this.updateScoreboard();
+            return;
         }
 
-        // Play "Dance Move" animation
-        this.tweens.add({
-            targets: sprite,
-            y: targetY,
-            angle: targetAngle,
-            scale: 1.2,
-            duration: 150,
-            yoyo: true,
-            ease: 'Cubic.easeOut',
-            onComplete: () => {
-                // Resume idle pulsing after move
-                this.tweens.add({
-                    targets: sprite,
-                    scaleY: 1.1,
-                    scaleX: 1.05,
-                    duration: 500,
-                    yoyo: true,
-                    repeat: -1,
-                    ease: 'Sine.easeInOut'
-                });
+        // Handle Sequence Input
+        const expectedDirection = this.currentSequence[player.sequenceProgress];
+
+        if (direction === expectedDirection) {
+            // Correct input
+            player.sequenceProgress++;
+            player.ui.sprite.setFillStyle(0xaaaaaa); // Slight visual cue
+
+            if (player.sequenceProgress === this.currentSequence.length) {
+                // Sequence complete, waiting for BAM
+                player.ui.sprite.setFillStyle(0xffffff);
             }
+        } else {
+            // Wrong input!
+            player.failedTurn = true;
+            player.ui.sprite.setFillStyle(0x444444);
+            this.showFeedback(player, 'WRONG MOVE!', 0xff0000);
+        }
+    }
+
+    showFeedback(player, text, colorCode) {
+        const px = player.ui.sprite.x;
+        const py = player.ui.sprite.y;
+
+        const feedback = this.add.text(px, py - 30, text, {
+            fontSize: '20px', color: this.numberToHex(colorCode), fontStyle: 'bold'
+        }).setOrigin(0.5, 0.5);
+
+        this.tweens.add({
+            targets: feedback, y: py - 80, alpha: 0, duration: 800, onComplete: () => feedback.destroy()
         });
 
-        // Add visual flash effect on the ground/background behind them
-        const flash = this.add.circle(sprite.x, sprite.y, 60, sprite.fillColor, 0.4);
-        this.tweens.add({
-            targets: flash,
-            scale: 2,
-            alpha: 0,
-            duration: 300,
-            onComplete: () => flash.destroy()
-        });
+        if (colorCode === 0xff0000) {
+            this.cameras.main.shake(100, 0.005); // slight shake penalty
+        }
     }
 }
 

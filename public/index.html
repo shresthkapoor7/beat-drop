@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-width=1.0">
@@ -9,9 +10,10 @@
     <script src="https://cdn.jsdelivr.net/npm/phaser@3.80.1/dist/phaser.min.js"></script>
     <!-- Simple QR Code Library -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-    
+
     <style>
-        body, html {
+        body,
+        html {
             margin: 0;
             padding: 0;
             width: 100%;
@@ -91,6 +93,7 @@
         }
     </style>
 </head>
+
 <body>
 
     <div id="header">
@@ -110,6 +113,10 @@
 
     <div id="game-container"></div>
 
+    <!-- Hidden video element to play the mp4 as background music -->
+    <video id="bg-music" src="/music/music.mp4" loop style="display:none"></video>
+
     <script type="module" src="/game.js"></script>
 </body>
+
 </html>

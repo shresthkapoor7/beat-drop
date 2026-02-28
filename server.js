@@ -48,8 +48,8 @@ io.on('connection', (socket) => {
 
   // Registration
   socket.on('register', (data) => {
-    const { role, roomId } = data;
-    
+    const { role, roomId, name } = data;
+
     // For simplicity, we only enforce matching the current room ID loosely
     if (roomId !== currentRoomId) {
       console.log(`Warning: Socket ${socket.id} presented mismatched roomId ${roomId}`);
@@ -58,14 +58,24 @@ io.on('connection', (socket) => {
     if (role === 'host') {
       console.log(`Host registered: ${socket.id}`);
       hostSocket = socket;
+
+      // Send any already registered players to the newly connected host
+      players.forEach((p, id) => {
+        hostSocket.emit('player_joined', {
+          id: p.id,
+          name: p.name,
+          totalPlayers: players.size
+        });
+      });
     } else if (role === 'controller') {
-      console.log(`Player registered: ${socket.id}`);
-      players.set(socket.id, { id: socket.id });
-      
+      console.log(`Player registered: ${socket.id} as ${name || 'Unknown'}`);
+      players.set(socket.id, { id: socket.id, name: name || 'Player' });
+
       // Notify host that a player joined
       if (hostSocket) {
         hostSocket.emit('player_joined', {
           id: socket.id,
+          name: name || 'Player',
           totalPlayers: players.size
         });
       }
@@ -88,19 +98,19 @@ io.on('connection', (socket) => {
   // Disconnection
   socket.on('disconnect', () => {
     console.log(`Socket disconnected: ${socket.id}`);
-    
+
     if (hostSocket && socket.id === hostSocket.id) {
       console.log('Host disconnected.');
       hostSocket = null;
     } else if (players.has(socket.id)) {
       console.log(`Player disconnected: ${socket.id}`);
       players.delete(socket.id);
-      
+
       // Notify host a player left
       if (hostSocket) {
         hostSocket.emit('player_left', {
           id: socket.id,
-          totalPlayers: players.size 
+          totalPlayers: players.size
         });
       }
     }

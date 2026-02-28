@@ -41,6 +41,42 @@
             font-size: 0.9rem;
             color: #c5c6c7;
             margin-top: 5px;
+            display: none;
+        }
+
+        #login-modal {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            height: 70vh;
+        }
+
+        #login-modal input {
+            padding: 15px;
+            font-size: 1.5rem;
+            text-align: center;
+            border: 2px solid #45a29e;
+            border-radius: 8px;
+            background: #0b0c10;
+            color: #66fcf1;
+            margin-bottom: 20px;
+            outline: none;
+        }
+
+        #login-modal button {
+            padding: 15px 40px;
+            font-size: 1.5rem;
+            background: #45a29e;
+            color: #0b0c10;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+
+        #controller-ui {
+            display: none;
         }
 
         #dpad {
@@ -93,6 +129,30 @@
             grid-column: 2;
             grid-row: 3;
         }
+
+        .btn-bam {
+            background: #ff0044;
+            border-color: #ffcccc;
+            width: 90%;
+            max-width: 400px;
+            margin: 10px auto;
+            padding: 20px;
+            font-size: 2rem;
+            border-radius: 20px;
+            text-align: center;
+            font-weight: bold;
+            box-shadow: 0 8px 0 #990022, 0 15px 20px rgba(0, 0, 0, 0.4);
+            cursor: pointer;
+            transition: all 0.1s;
+            color: white;
+            text-transform: uppercase;
+        }
+
+        .btn-bam:active {
+            transform: translateY(8px);
+            box-shadow: 0 0px 0 #990022, 0 5px 10px rgba(0, 0, 0, 0.4);
+            background: #ff3366;
+        }
     </style>
 </head>
 
@@ -103,47 +163,69 @@
         <div id="status">Connecting...</div>
     </div>
 
-    <div id="dpad">
-        <div class="btn" id="btn-up" data-dir="UP">⬆️</div>
-        <div class="btn" id="btn-left" data-dir="LEFT">⬅️</div>
-        <div class="btn" id="btn-right" data-dir="RIGHT">➡️</div>
-        <div class="btn" id="btn-down" data-dir="DOWN">⬇️</div>
+    <div id="login-modal">
+        <input type="text" id="player-name" placeholder="Enter Name" maxlength="12" autocomplete="off" />
+        <button id="join-btn">JOIN GAME</button>
+    </div>
+
+    <div id="controller-ui">
+        <div id="dpad">
+            <div class="btn" id="btn-up" data-dir="UP">⬆️</div>
+            <div class="btn" id="btn-left" data-dir="LEFT">⬅️</div>
+            <div class="btn" id="btn-right" data-dir="RIGHT">➡️</div>
+            <div class="btn" id="btn-down" data-dir="DOWN">⬇️</div>
+        </div>
+        <div class="btn-bam" data-dir="BAM">BAM!</div>
     </div>
 
     <script>
-        const socket = io();
+        const socket = io({ autoConnect: false });
         const statusDiv = document.getElementById('status');
+        const loginModal = document.getElementById('login-modal');
+        const controllerUI = document.getElementById('controller-ui');
+        const nameInput = document.getElementById('player-name');
+        const joinBtn = document.getElementById('join-btn');
 
         // Extract Room ID from URL
         const urlParams = new URLSearchParams(window.location.search);
         const roomId = urlParams.get('roomId');
 
         if (!roomId) {
-            statusDiv.innerText = "Error: No Room ID";
-            statusDiv.style.color = "#ff0044";
-        } else {
-            // Register with server
-            socket.emit('register', { role: 'controller', roomId: roomId });
+            loginModal.innerHTML = '<h3 style="color:#ff0044;">Error: No Room ID</h3>';
+        }
+
+        joinBtn.addEventListener('click', () => {
+            const name = nameInput.value.trim();
+            if (!name || !roomId) return;
+
+            loginModal.style.display = 'none';
+            controllerUI.style.display = 'block';
+            statusDiv.style.display = 'block';
+
+            socket.io.opts.query = { name };
+            socket.connect();
 
             socket.on('connect', () => {
-                statusDiv.innerText = `Connected to Room: ${roomId}`;
+                statusDiv.innerText = `Connected as ${name}`;
                 statusDiv.style.color = "#66fcf1";
+                // Register with server safely after connection is established
+                socket.emit('register', { role: 'controller', roomId: roomId, name: name });
             });
 
             socket.on('disconnect', () => {
                 statusDiv.innerText = "Disconnected";
                 statusDiv.style.color = "#ff0044";
             });
-        }
+        });
 
         // Handle Inputs
-        const buttons = document.querySelectorAll('.btn');
+        const buttons = document.querySelectorAll('.btn, .btn-bam');
 
         // Provide haptic feedback and emit event
         function handlePress(e) {
             e.preventDefault(); // Prevent double firing on touch devices
 
-            if (!roomId) return;
+            if (!roomId || !socket.connected) return;
 
             const direction = this.getAttribute('data-dir');
 
