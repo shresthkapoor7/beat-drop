@@ -9,6 +9,11 @@ const qrContainer = document.getElementById('qr-container');
 
 let players = {}; // Map socket.id -> Phaser Sprite
 
+const BPM         = 118;
+const BEAT_MS     = 60000 / BPM;   // ≈ 508ms per beat
+const TURN_BEATS  = 8;             // 2 bars of 4/4 — aligns with Lyria's 118 BPM output
+const PANEL_WORDS = ['groovy', 'dreamy', 'electronic', 'jazz', 'upbeat', 'chill'];
+
 // 1. Fetch Room ID and Setup QR Code
 async function initializeRoom() {
     try {
@@ -61,6 +66,55 @@ socket.on('input', (data) => {
     if (gameScene) gameScene.handleInput(data);
 });
 
+socket.on('word_panel_result', ({ winner }) => {
+    if (winner && window.gameScene) window.gameScene.showWordResult(winner);
+});
+
+// ── Web Audio — stream Lyria PCM from server ──────────────────────────────────
+// Raw PCM: 16-bit signed, 48kHz, stereo interleaved (L R L R ...)
+let audioCtx     = null;
+let nextPlayTime = 0;
+
+function ensureAudio() {
+    if (!audioCtx) {
+        audioCtx     = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 48000 });
+        nextPlayTime = audioCtx.currentTime + 0.1;
+    }
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+}
+
+socket.on('audio_chunk', (b64) => {
+    ensureAudio();
+    try {
+        const binary = atob(b64);
+        const bytes  = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+
+        const int16      = new Int16Array(bytes.buffer);
+        const frameCount = Math.floor(int16.length / 2);
+        const buf        = audioCtx.createBuffer(2, frameCount, 48000);
+        const L          = buf.getChannelData(0);
+        const R          = buf.getChannelData(1);
+        for (let i = 0; i < frameCount; i++) {
+            L[i] = int16[i * 2]     / 32768;
+            R[i] = int16[i * 2 + 1] / 32768;
+        }
+
+        const startAt = Math.max(nextPlayTime, audioCtx.currentTime + 0.02);
+        const src     = audioCtx.createBufferSource();
+        src.buffer    = buf;
+        src.connect(audioCtx.destination);
+        src.start(startAt);
+        nextPlayTime  = startAt + buf.duration;
+    } catch (e) {
+        console.warn('[Audio] chunk error:', e.message);
+    }
+});
+
+// Unlock AudioContext on first interaction
+document.addEventListener('click',   ensureAudio, { once: true });
+document.addEventListener('keydown', ensureAudio, { once: true });
+
 
 // 3. Phaser Game Configuration
 class GameScene extends Phaser.Scene {
@@ -69,7 +123,7 @@ class GameScene extends Phaser.Scene {
         this.colors = [0xff0044, 0x00ff00, 0x0044ff, 0xffff00, 0xff00ff, 0x00ffff];
         this.gameStarted = false;
 
-        this.turnDuration = 3500; // ms
+        this.turnDuration = TURN_BEATS * BEAT_MS; // 8 beats ≈ 4067ms, aligned to 118 BPM
         this.turnTimer = null;
 
         this.currentSequence = [];
@@ -92,7 +146,12 @@ class GameScene extends Phaser.Scene {
         this.hitZoneEnd = 0.95;
     }
 
-    preload() { }
+    preload() {
+        // Preload the 5 character sprites
+        for (let i = 1; i <= 5; i++) {
+            this.load.image(`char${i}`, `chars/char${i}.png`);
+        }
+    }
 
     create() {
         // Background grid
@@ -135,6 +194,24 @@ class GameScene extends Phaser.Scene {
 
         this.tweens.add({ targets: this.startText, alpha: 0.2, duration: 800, yoyo: true, repeat: -1 });
 
+        // Particle Manager for the burst effect
+        this.particles = this.add.particles(0, 0, 'flare', {
+            speed: { min: 100, max: 300 },
+            angle: { min: 0, max: 360 },
+            scale: { start: 0.5, end: 0 },
+            blendMode: 'ADD',
+            lifespan: 600,
+            emitting: false
+        });
+
+        // We'll generate a simple white circle texture for the particles to use
+        const graphics = this.add.graphics();
+        graphics.fillStyle(0xffffff, 1);
+        graphics.fillCircle(8, 8, 8);
+        graphics.generateTexture('flare', 16, 16);
+        graphics.destroy();
+
+        // Start game on click
         this.input.on('pointerdown', () => { if (!this.gameStarted) this.startGame(); });
 
         window.gameScene = this;
@@ -150,8 +227,15 @@ class GameScene extends Phaser.Scene {
         this.startOverlay.destroy();
         this.startText.destroy();
 
-        const bgMusic = document.getElementById('bg-music');
-        if (bgMusic) bgMusic.play().catch(e => console.error("Audio play blocked", e));
+        // Audio is streamed from Lyria via Web Audio — no video element needed
+        ensureAudio();
+
+        // Every 16 beats (2 turns), open the word selection panel on all controllers
+        this.time.addEvent({
+            delay: 16 * BEAT_MS,
+            loop: true,
+            callback: () => socket.emit('word_panel_start', { words: PANEL_WORDS }),
+        });
 
         this.startNextTurn();
     }
@@ -162,8 +246,9 @@ class GameScene extends Phaser.Scene {
             p.sequenceProgress = 0;
             p.failedTurn = false;
             p.finishedTurn = false;
-            p.ui.sprite.setFillStyle(p.color); // Rectangles use setFillStyle instead of clearTint
-            p.ui.sprite.setScale(1);
+            p.ui.sprite.clearTint();
+            p.ui.sprite.setScale(p.ui.baseScale); // Return to their base scale
+            p.ui.sprite.setAngle(0);
         });
 
         // Generate a sequence of 5 arrows
@@ -243,22 +328,44 @@ class GameScene extends Phaser.Scene {
         this.grid.tilePositionY -= 0.5;
     }
 
+    getAvailableCharIndex() {
+        // Find which char indices 1-5 are NOT currently used
+        const usedIndices = Object.values(players).map(p => p.charIndex);
+        for (let i = 1; i <= 5; i++) {
+            if (!usedIndices.includes(i)) return i;
+        }
+        return 1; // Fallback
+    }
+
     addPlayer(id, name) {
         if (players[id]) return; // Prevent duplicate instantiation
 
-        const x = Phaser.Math.Between(100, 500);
-        const y = Phaser.Math.Between(150, 350);
+        if (Object.keys(players).length >= 5) {
+            console.log("Room full, cannot add more than 5 players.");
+            return;
+        }
+
+        const x = Phaser.Math.Between(150, 650);
+        const y = Phaser.Math.Between(150, 300);
         const color = Phaser.Math.RND.pick(this.colors);
 
-        // Player Sprite
-        const sprite = this.add.rectangle(x, y, 40, 80, color);
-        sprite.setStrokeStyle(4, 0xffffff);
+        const charIndex = this.getAvailableCharIndex();
+
+        // Player Sprite (Image)
+        const sprite = this.add.sprite(x, y, `char${charIndex}`);
+
+        // Scale down the sprite if it's too large naturally
+        // Assuming char/images are large, let's set a standard height
+        const targetHeight = 120;
+        const scale = targetHeight / sprite.height;
+        sprite.setScale(scale);
 
         // Player Name Tag above sprite
-        const nameTag = this.add.text(x, y - 60, name || 'Player', { fontSize: '14px', color: '#ffffff', backgroundColor: '#000000' }).setOrigin(0.5);
+        const nameTag = this.add.text(x, y - (sprite.height * scale / 2) - 15, name || 'Player', { fontSize: '14px', color: '#ffffff', backgroundColor: '#000000' }).setOrigin(0.5);
 
+        // Idle floating tween
         this.tweens.add({
-            targets: sprite, scaleY: 1.1, scaleX: 1.05, duration: 500, yoyo: true, repeat: -1, ease: 'Sine.easeInOut'
+            targets: sprite, y: y - 10, duration: 1500, yoyo: true, repeat: -1, ease: 'Sine.easeInOut'
         });
 
         players[id] = {
@@ -266,10 +373,11 @@ class GameScene extends Phaser.Scene {
             name: name || 'Player',
             score: 0,
             color,
+            charIndex,
             sequenceProgress: 0,
             failedTurn: false,
             finishedTurn: false,
-            ui: { sprite, nameTag }
+            ui: { sprite, nameTag, baseScale: scale, baseY: y }
         };
 
         // If game is already started, ensure they see the current sequence
@@ -304,15 +412,32 @@ class GameScene extends Phaser.Scene {
         const flashText = this.add.text(player.ui.sprite.x, player.ui.sprite.y - 40, symbol, { fontSize: '30px' }).setOrigin(0.5);
         this.tweens.add({ targets: flashText, y: player.ui.sprite.y - 80, alpha: 0, duration: 400, onComplete: () => flashText.destroy() });
 
-        // Avatar movement based on direction
-        let targetAngle = 0;
-        let targetY = player.ui.sprite.y; // Ensure we return to base Y due to yoyo
-        if (direction === 'LEFT') targetAngle = -20;
-        if (direction === 'RIGHT') targetAngle = 20;
-        if (direction === 'UP') targetY -= 20;
-        if (direction === 'DOWN') targetY += 20;
+        // Transform-Based Input Animation
+        const bY = player.ui.baseY;
+        const bS = player.ui.baseScale;
 
-        this.tweens.add({ targets: player.ui.sprite, angle: targetAngle, y: targetY, duration: 100, yoyo: true });
+        // Clear conflicting tweens on this sprite easily
+        this.tweens.killTweensOf(player.ui.sprite);
+
+        if (direction === 'LEFT') {
+            this.tweens.add({ targets: player.ui.sprite, angle: -10, duration: 150, yoyo: true, onComplete: () => player.ui.sprite.setAngle(0) });
+        } else if (direction === 'RIGHT') {
+            this.tweens.add({ targets: player.ui.sprite, angle: 10, duration: 150, yoyo: true, onComplete: () => player.ui.sprite.setAngle(0) });
+        } else if (direction === 'UP') {
+            this.tweens.add({
+                targets: player.ui.sprite, y: bY - 30, scaleY: bS * 1.1, scaleX: bS * 0.9, duration: 150, yoyo: true, onComplete: () => {
+                    player.ui.sprite.y = bY;
+                    player.ui.sprite.setScale(bS);
+                }
+            });
+        } else if (direction === 'DOWN') {
+            this.tweens.add({
+                targets: player.ui.sprite, y: bY + 15, scaleY: bS * 0.8, scaleX: bS * 1.2, duration: 150, yoyo: true, onComplete: () => {
+                    player.ui.sprite.y = bY;
+                    player.ui.sprite.setScale(bS);
+                }
+            });
+        }
 
         // If turn already resolved for this player, ignore
         if (player.failedTurn || player.finishedTurn) return;
@@ -323,28 +448,77 @@ class GameScene extends Phaser.Scene {
         if (direction === expectedDirection) {
             // Correct input
             player.sequenceProgress++;
-            player.ui.sprite.setFillStyle(0xaaaaaa); // Slight visual cue
+            player.ui.sprite.setTint(0xaaaaaa); // Slight visual cue
 
             if (player.sequenceProgress === this.currentSequence.length) {
                 // Sequence complete!
                 player.score += 500;
                 player.finishedTurn = true;
-                player.ui.sprite.setFillStyle(0xffffff);
+                player.ui.sprite.clearTint();
+
+                // 1. Neon glow pulse
+                player.ui.sprite.setTintFill(0xaaffaa);
+                this.time.delayedCall(150, () => {
+                    if (player && player.ui && player.ui.sprite) {
+                        player.ui.sprite.clearTint();
+                    }
+                });
+
                 this.showFeedback(player, 'PERFECT!', 0x00ff00);
 
-                // Dance Animation
+                // 2. Particle Burst
+                this.particles.emitParticleAt(player.ui.sprite.x, player.ui.sprite.y, 30);
+
+                // 3. Ground Ripple (Expanding ring)
+                const ripple = this.add.circle(player.ui.sprite.x, player.ui.sprite.y + (player.ui.sprite.height * player.ui.baseScale / 2), 10);
+                ripple.setStrokeStyle(4, 0x66fcf1);
                 this.tweens.add({
-                    targets: player.ui.sprite, y: player.ui.sprite.y - 50, scaleX: 1.3, duration: 200, yoyo: true
+                    targets: ripple,
+                    radius: 100,
+                    alpha: 0,
+                    duration: 500,
+                    ease: 'Cubic.easeOut',
+                    onComplete: () => ripple.destroy()
                 });
+
+                // 4. Big exaggerated squash (Static execution)
+                this.tweens.add({
+                    targets: player.ui.sprite,
+                    y: player.ui.baseY + 20,
+                    scaleX: player.ui.baseScale * 1.5,
+                    scaleY: player.ui.baseScale * 0.5,
+                    duration: 100,
+                    yoyo: true,
+                    onComplete: () => {
+                        player.ui.sprite.y = player.ui.baseY;
+                        player.ui.sprite.setScale(player.ui.baseScale);
+                    }
+                });
+
+                // 5. Camera Punch
+                this.cameras.main.shake(150, 0.01);
+                this.cameras.main.flash(100, 255, 255, 255, 0.2); // slight white flash covering screen
 
                 this.updateScoreboard();
             }
         } else {
             // Wrong input!
             player.failedTurn = true;
-            player.ui.sprite.setFillStyle(0x444444);
+            player.ui.sprite.setTint(0x444444);
             this.showFeedback(player, 'WRONG MOVE!', 0xff0000);
         }
+    }
+
+    showWordResult(word) {
+        const banner = this.add.text(400, 55, `♪  "${word}"  wins the vibe!`, {
+            fontSize: '22px', color: '#66fcf1', fontStyle: 'bold',
+            backgroundColor: '#0b0c10cc', padding: { x: 14, y: 6 },
+        }).setOrigin(0.5).setDepth(10);
+
+        this.tweens.add({
+            targets: banner, alpha: 0, duration: 1000, delay: 2000,
+            onComplete: () => banner.destroy(),
+        });
     }
 
     showFeedback(player, text, colorCode) {
