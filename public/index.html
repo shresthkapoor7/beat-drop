@@ -202,6 +202,74 @@
             animation: pulse-glow 1.5s infinite alternate;
         }
 
+        /* ── Left vibe / vote sidebar ───────────────────────────────────────── */
+        #vibe-sidebar {
+            width: 220px;
+            flex-shrink: 0;
+            background: rgba(10, 15, 25, 0.8);
+            border-radius: 8px;
+            border: 1px solid rgba(0, 243, 255, 0.35);
+            box-shadow: inset 0 0 20px rgba(0, 243, 255, 0.08), 0 0 20px rgba(0, 243, 255, 0.15);
+            padding: 16px 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            backdrop-filter: blur(5px);
+            overflow: hidden;
+        }
+
+        #vibe-sidebar-title {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 0.8rem;
+            letter-spacing: 3px;
+            color: var(--neon-blue);
+            text-shadow: 0 0 8px var(--neon-blue);
+            text-align: center;
+            border-bottom: 1px solid rgba(0, 243, 255, 0.25);
+            padding-bottom: 10px;
+        }
+
+        #vibe-canvas-wrap {
+            flex: 1;
+            min-height: 0;
+            position: relative;
+        }
+
+        #vibe-canvas-wrap canvas {
+            position: absolute;
+            inset: 0;
+            width: 100% !important;
+            height: 100% !important;
+            border: none;
+            box-shadow: none;
+            border-radius: 0;
+        }
+
+        #vibe-footer {
+            text-align: center;
+            padding-top: 6px;
+            border-top: 1px solid rgba(0,243,255,0.15);
+        }
+
+        #vibe-current {
+            font-size: 0.85rem;
+            color: #c5c6c7;
+            letter-spacing: 1px;
+            min-height: 20px;
+        }
+
+        #vibe-current span {
+            color: var(--neon-blue);
+            font-weight: bold;
+        }
+
+        #vote-countdown {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 0.7rem;
+            color: rgba(0,243,255,0.5);
+            letter-spacing: 2px;
+        }
+
         #leaderboard-side {
             width: 280px;
             background: rgba(10, 15, 25, 0.8);
@@ -343,6 +411,16 @@
     </div>
 
     <div id="main-area">
+        <!-- Left sidebar: 3D word cloud -->
+        <div id="vibe-sidebar">
+            <div id="vibe-sidebar-title">VIBE</div>
+            <div id="vibe-canvas-wrap"></div>
+            <div id="vibe-footer">
+                <div id="vibe-current"></div>
+                <div id="vote-countdown"></div>
+            </div>
+        </div>
+
         <div id="game-wrapper">
             <div id="game-container">
                 <div id="waiting-overlay">
@@ -371,6 +449,7 @@
     <video id="bg-music" src="/music/music.mp4" loop style="display:none"></video>
 
     <script type="module" src="/game.js"></script>
+    <script type="module" src="/vibe-sidebar.js"></script>
 </body>
 
 </html>

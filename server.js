@@ -24,20 +24,45 @@ app.use(express.static(path.join(__dirname, 'public')));
 // ── Lyria session (module-level so vote handler can update prompts) ───────────
 let lyriaSession = null;
 
-// ── Word pool — shown randomly per controller ─────────────────────────────────
+// ── Word pool — full 158 words from Lyria docs ────────────────────────────────
 const LYRIA_WORD_POOL = [
+  // Instruments
+  '303 Acid Bass', '808 Hip Hop Beat', 'Accordion', 'Alto Saxophone',
+  'Bagpipes', 'Balalaika Ensemble', 'Banjo', 'Bass Clarinet', 'Bongos',
+  'Boomy Bass', 'Bouzouki', 'Buchla Synths', 'Cello', 'Charango',
+  'Clavichord', 'Conga Drums', 'Didgeridoo', 'Dirty Synths', 'Djembe',
+  'Drumline', 'Dulcimer', 'Fiddle', 'Flamenco Guitar', 'Funk Drums',
+  'Glockenspiel', 'Guitar', 'Hang Drum', 'Harmonica', 'Harp',
+  'Harpsichord', 'Hurdy-gurdy', 'Kalimba', 'Koto', 'Lyre', 'Mandolin',
+  'Maracas', 'Marimba', 'Mbira', 'Mellotron', 'Metallic Twang',
+  'Moog Oscillations', 'Ocarina', 'Persian Tar', 'Pipa', 'Precision Bass',
+  'Ragtime Piano', 'Rhodes Piano', 'Shamisen', 'Shredding Guitar',
+  'Sitar', 'Slide Guitar', 'Smooth Pianos', 'Spacey Synths', 'Steel Drum',
+  'Synth Pads', 'Tabla', 'TR-909 Drum Machine', 'Trumpet', 'Tuba',
+  'Vibraphone', 'Viola Ensemble', 'Warm Acoustic Guitar', 'Woodwinds',
   // Genre
-  'Dubstep', 'Bossa Nova', 'Drum & Bass', 'Celtic Folk', 'Hyperpop',
-  'Disco Funk', 'Lo-Fi Hip Hop', 'Minimal Techno', 'Jazz Fusion', 'Reggae',
-  'Psytrance', 'Neo-Soul', 'Afrobeat', 'Chiptune', 'Trip Hop',
-  'Electro Swing', 'Deep House', 'Bluegrass', 'Orchestral Score', 'Ambient',
-  // Instrument
-  'Bagpipes', 'Moog Oscillations', 'Rhodes Piano', 'Tabla', 'Sitar',
-  '808 Hip Hop Beat', 'Harmonica', 'TR-909 Drum Machine', 'Spacey Synths',
-  'Hang Drum', 'Accordion', 'Cello',
+  'Acid Jazz', 'Afrobeat', 'Alternative Country', 'Baroque', 'Bengal Baul',
+  'Bhangra', 'Bluegrass', 'Blues Rock', 'Bossa Nova', 'Breakbeat',
+  'Celtic Folk', 'Chillout', 'Chiptune', 'Classic Rock', 'Contemporary R&B',
+  'Cumbia', 'Deep House', 'Disco Funk', 'Drum & Bass', 'Dubstep',
+  'EDM', 'Electro Swing', 'Funk Metal', 'G-funk', 'Garage Rock',
+  'Glitch Hop', 'Grime', 'Hyperpop', 'Indian Classical', 'Indie Electronic',
+  'Indie Folk', 'Indie Pop', 'Irish Folk', 'Jam Band', 'Jamaican Dub',
+  'Jazz Fusion', 'Latin Jazz', 'Lo-Fi Hip Hop', 'Marching Band', 'Merengue',
+  'New Jack Swing', 'Minimal Techno', 'Moombahton', 'Neo-Soul',
+  'Orchestral Score', 'Piano Ballad', 'Polka', 'Post-Punk',
+  '60s Psychedelic Rock', 'Psytrance', 'R&B', 'Reggae', 'Reggaeton',
+  'Renaissance Music', 'Salsa', 'Shoegaze', 'Ska', 'Surf Rock',
+  'Synthpop', 'Techno', 'Trance', 'Trap Beat', 'Trip Hop',
+  'Vaporwave', 'Witch House',
   // Mood
-  'Dreamy', 'Upbeat', 'Ominous Drone', 'Huge Drop', 'Chill',
-  'Glitchy Effects', 'Ethereal Ambience', 'Fat Beats', 'Weird Noises',
+  'Acoustic Instruments', 'Ambient', 'Bright Tones', 'Chill',
+  'Crunchy Distortion', 'Danceable', 'Dreamy', 'Echo', 'Emotional',
+  'Ethereal Ambience', 'Experimental', 'Fat Beats', 'Funky',
+  'Glitchy Effects', 'Huge Drop', 'Live Performance', 'Lo-fi',
+  'Ominous Drone', 'Psychedelic', 'Rich Orchestration', 'Saturated Tones',
+  'Subdued Melody', 'Sustained Chords', 'Swirling Phasers', 'Tight Groove',
+  'Unsettling', 'Upbeat', 'Virtuoso', 'Weird Noises',
 ];
 
 const WORDS_PER_USER = 5;
@@ -214,13 +239,16 @@ io.on('connection', (socket) => {
 
     const duration = 4 * PANEL_BEAT_MS; // ≈ 2033ms
 
-    // Send a different random subset to each controller
+    // Send a different random subset to each controller, collect all round words
+    const roundWords = new Set();
     players.forEach((_, sid) => {
-      io.to(sid).emit('show_word_panel', {
-        words: pickRandom(LYRIA_WORD_POOL, WORDS_PER_USER),
-        duration,
-      });
+      const words = pickRandom(LYRIA_WORD_POOL, WORDS_PER_USER);
+      words.forEach(w => roundWords.add(w));
+      io.to(sid).emit('show_word_panel', { words, duration });
     });
+
+    // Tell host which words are in play this round
+    if (hostSocket) hostSocket.emit('panel_start', { words: [...roundWords], duration });
 
     panelTimer = setTimeout(async () => {
       // Sort all voted words by count descending, take top 10
@@ -273,6 +301,8 @@ io.on('connection', (socket) => {
     if (!players.has(socket.id) || !word) return;
     panelVotes[word] = (panelVotes[word] || 0) + 1;
     console.log(`[Vote] ${players.get(socket.id).name}: "${word}"`);
+    // Live vote count update to host sidebar
+    if (hostSocket) hostSocket.emit('vote_update', { votes: { ...panelVotes } });
   });
 
   socket.on('disconnect', () => {
